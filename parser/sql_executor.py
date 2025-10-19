@@ -17,7 +17,7 @@ from indexes.ExtendibleHashing import ExtendibleHashing
 from indexes.isam import ISAMIndex
 from core.databasemanager import DatabaseManager
 from core.models import Table, Field, Record
-from indexes.rtree import RTree
+from indexes.rtree import RTreeIndex
 from indexes.isam import ISAMIndex
 from indexes.sequential_file import SequentialIndex
 
@@ -172,7 +172,6 @@ class SQLExecutor:
                 'source_file': file_path
             }
             
-            # ¡¡¡FALTABAN ESTAS 2 LÍNEAS CRÍTICAS!!!
             structure = self._create_structure(table_name, index_type, fields, key_field)
             self.structures[table_name] = structure
             
@@ -261,7 +260,6 @@ class SQLExecutor:
         try:
             print(f"DEBUG Creando estructura REAL: {index_type} para {table_name}")
             
-            # Para Sequential File necesitamos crear el objeto Table
             if index_type == 'SEQ':
                 # Crear objeto Table con los campos
                 table_fields = []
@@ -297,22 +295,58 @@ class SQLExecutor:
                 structure = ExtendibleHashing(bucketSize=3, index_filename=f"data/{table_name}_hash.idx")
                 print(f"DEBUG Extendible Hashing creado: {type(structure)}")
                 
-            else:
-                raise ValueError(f'Tipo de índice no soportado: {index_type}')
+            elif index_type == 'RTREE':
+                # Para R-tree necesitamos identificar campos espaciales
+                spatial_fields = []
+                for field_info in fields:
+                    if field_info['type'] == 'ARRAY[FLOAT]' or 'ubicacion' in field_info['name'].lower():
+                        spatial_fields.append(field_info)
+                
+                if len(spatial_fields) < 2:
+                    # Si no hay campos espaciales explícitos, usar los primeros dos campos numéricos
+                    numeric_fields = [f for f in fields if f['type'] in ['FLOAT', 'INT']]
+                    if len(numeric_fields) >= 2:
+                        spatial_fields = numeric_fields[:2]
+                        print(f"DEBUG Usando campos numéricos para R-tree: {[f['name'] for f in spatial_fields]}")
+                    else:
+                        raise ValueError("R-tree requiere al menos 2 campos numéricos para coordenadas")
+                
+                # CREAR OBJETOS Field a partir de los diccionarios
+                from core.models import Field
+                spatial_field_objects = []
+                for field_info in spatial_fields[:2]:  # Solo necesitamos 2 campos para coordenadas
+                    # Convertir tipo string a clase Python
+                    if field_info['type'] == 'INT':
+                        data_type = int
+                    elif field_info['type'] == 'FLOAT':
+                        data_type = float
+                    else:
+                        data_type = str
+                    
+                    spatial_field_objects.append(Field(
+                        name=field_info['name'],
+                        data_type=data_type,
+                        size=field_info.get('size', 0)
+                    ))
+                    print(f"DEBUG Campo R-tree: {field_info['name']} -> {data_type}")
+                
+                structure = RTreeIndex(
+                    index_filename=f"data/{table_name}_rtree.idx",
+                    fields=spatial_field_objects,
+                    max_children=4
+                )
+                print(f"DEBUG R-tree creado exitosamente: {type(structure)}")
+                
             
-            # Cargar datos existentes si hay
-            if hasattr(structure, 'load_from_file'):
-                loaded = structure.load_from_file()
-                print(f"DEBUG Carga desde archivo: {loaded}")
-            
-            print(f"DEBUG Estructura REAL final: {type(structure)}")
+            print(f"DEBUG Estructura creada: {structure}")
             return structure
             
         except Exception as e:
             print(f"ERROR creando estructura real: {e}")
             import traceback
             traceback.print_exc()
-            raise
+            return None  # ← Asegurar que nunca retorne None silenciosamente
+            
     
     def _load_data_from_csv(self, table_name, file_path, fields, structure, index_type, key_field):
         """Carga datos reales desde CSV a estructuras reales"""
@@ -337,14 +371,30 @@ class SQLExecutor:
                     key_index = next((i for i, f in enumerate(fields) if f['name'] == key_field), 0)
                     key_value = values[key_index] if key_index < len(values) else record_count
                     
-                    # Insertar en estructura REAL
-                    structure.insert(key_value, values)
+                    # Insertar en estructura REAL (manejo especial para R-tree)
+                    if index_type == 'RTREE':
+                        # Para R-tree, crear un diccionario con los nombres de campo y valores
+                        record_dict = {}
+                        for i, field in enumerate(fields):
+                            record_dict[field['name']] = values[i]
+                        
+                        # También agregar 'key' para compatibilidad
+                        record_dict['key'] = key_value
+                        record_dict['id'] = key_value
+                        
+                        structure.insert(record_dict, record_count)
+                        print(f"DEBUG Insertado en R-tree: {key_value} -> {record_dict}")
+                    else:
+                        structure.insert(key_value, values)
+                    
                     record_count += 1
                 
                 return record_count
                 
         except Exception as e:
             print(f"Error cargando datos CSV: {e}")
+            import traceback
+            traceback.print_exc()
             return 0
     
     def _execute_select(self, plan: ExecutionPlan) -> Dict[str, Any]:
@@ -360,7 +410,6 @@ class SQLExecutor:
             
             # Si no hay WHERE, simular SELECT * (para testing)
             if not where_clause:
-                # Esto es temporal - en producción necesitarías leer todos los registros
                 return {
                     'success': True,
                     'results': [f"SELECT * para {table_name} (implementar lectura completa)"],
@@ -382,6 +431,23 @@ class SQLExecutor:
                         'count': 1 if result else 0,
                         'message': f'Encontrado: {result}' if result else 'No encontrado'
                     }
+            
+            # Búsqueda espacial para R-tree
+            elif where_clause.get('type') == 'spatial':
+                field = where_clause['field']
+                point = where_clause['point']
+                radius = where_clause['radius']
+                
+                if hasattr(structure, 'spatial_search'):
+                    results = structure.spatial_search(point, radius)
+                    return {
+                        'success': True,
+                        'results': results,
+                        'count': len(results),
+                        'message': f'Encontrados {len(results)} registros en el radio especificado'
+                    }
+                else:
+                    return {'success': False, 'error': 'Búsqueda espacial no soportada para este índice'}
             
             return {'success': False, 'error': 'Tipo de WHERE no implementado'}
             
@@ -584,5 +650,6 @@ class SQLExecutor:
             
         except Exception as e:
             return {'success': False, 'error': f'Error creando tabla desde esquema: {e}'}
+
 
     
