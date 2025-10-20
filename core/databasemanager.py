@@ -3,26 +3,24 @@ from core.models import Table, Record, Field
 from core.file_manager import FileManager
 from indexes.bplus import BPlusTree
 from indexes.isam import ISAMIndex
-from indexes.sequential_file import SequentialIndex  # NUEVO IMPORT
-from indexes.rtree import RTreeIndex
-
+from indexes.sequential_file import SequentialIndex
+from indexes.rtree import RTreeIndex  # NUEVO IMPORT
+from indexes.ExtendibleHashing import ExtendibleHashing
 from typing import List, Union, Any
 
 
 class DatabaseManager:
     def __init__(self, table: Table, filename: str, order: int = 4, index_type: str = 'bplus'):
-        # index_type: 'bplus' (por defecto), 'isam', o 'sequential'
-        
         self.table = table
         self.filename = filename
-        self.index_type = index_type  # NUEVO: Guardar el tipo de índice
+        self.index_type = index_type
 
         # Crear nombres de archivos para datos e índice
         self.data_filename = filename
         self.index_filename = filename.replace('.dat', '.idx')
 
-        # ¡IMPORTANTE! El FileManager solo se usa para B+ e ISAM
-        if self.index_type in ('bplus', 'isam', 'rtree'):
+        # FileManager se usa para B+, ISAM, R-tree y Extendible Hashing
+        if self.index_type in ('bplus', 'isam', 'rtree', 'extendiblehash'):
             self.file_manager = FileManager(self.data_filename, table)
         else:
             self.file_manager = None  # No usamos FileManager para Sequential
@@ -30,15 +28,16 @@ class DatabaseManager:
         # Inicializar índice según el tipo solicitado
         if index_type == 'isam':
             self.index = ISAMIndex(self.data_filename, index_filename=self.index_filename, file_manager=self.file_manager)
-        elif index_type == 'sequential':  # ¡NUEVO CASO!
+        elif index_type == 'sequential':
             self.index = SequentialIndex(self.data_filename, self.table)
         elif index_type == 'rtree':
             # Suponiendo que la tabla tiene campos adecuados para R-Tree
-            spatial_fields = [field for field in table.fields if field.field_type in ('float', 'int')]
+            spatial_fields = [field for field in table.fields if field.data_type in (float, int)]
             if len(spatial_fields) < 2:
                 raise ValueError("R-Tree requires at least two spatial fields (int or float).")
             self.index = RTreeIndex(self.index_filename, spatial_fields, file_manager=self.file_manager)
-            
+        elif index_type == 'extendiblehash': 
+            self.index = ExtendibleHashing(bucketSize=3, index_filename=self.index_filename)
         else:
             # Comportamiento por defecto: B+ Tree con persistencia
             self.index = BPlusTree(order=order, index_filename=self.index_filename)
@@ -46,9 +45,8 @@ class DatabaseManager:
         # Intentar cargar el índice desde archivo
         if not self.index.load_from_file():
             # Si el índice está vacío y NO es secuencial, cargamos desde FileManager
-            if self.index_type in ('bplus', 'isam'):
+            if self.index_type in ('bplus', 'isam', 'extendiblehash'):  # Agregar extendiblehash
                 self.load_index_from_file()
-            # Si es secuencial, no necesita 'load_index_from_file', ya se maneja solo.
 
     def load_index_from_file(self):
         """Construye el índice B+/ISAM desde los registros existentes."""
@@ -71,20 +69,22 @@ class DatabaseManager:
                         self.index.insert(record.key, idx)
                     idx += 1
                 self.file_manager.file_size = idx
-                print(f"Índice construido con {len(self.index.traverse_leaves())} hojas/entradas.")
+                if self.index_type == 'extendiblehash':
+                    print(f"Índice Extendible Hashing construido")
+                else:
+                    print(f"Índice construido con {len(self.index.traverse_leaves())} hojas/entradas.")
 
     def add_record(self, record: Record):
         """Añade un nuevo registro tanto al archivo como al índice."""
         
         if self.index_type == 'sequential':
-            # SequentialIndex maneja su propia escritura de archivos
-            # Le pasamos el objeto Record COMPLETO
             self.index.insert(record.key, record)
         elif self.index_type == 'rtree':
-            # Para R-Tree, escribir al archivo de datos y pasar el Record completo y la posición
             pos = self.file_manager.add_record(record)
-            # RTreeIndex.insert acepta (record, pos)
             self.index.insert(record, pos)
+        elif self.index_type == 'extendiblehash':  # ¡NUEVO CASO!
+            pos = self.file_manager.add_record(record)
+            self.index.insert(record.key, pos)  # Extendible Hashing usa (key, position)
         else:
             # Lógica anterior para B+ e ISAM
             pos = self.file_manager.add_record(record)
@@ -98,7 +98,7 @@ class DatabaseManager:
         if self.index_type == 'sequential':
             # SequentialIndex.search() devuelve el Record completo
             return self.index.search(key)
-        elif self.index_type == 'rtree':
+        elif self.index_type == ('rtree','extendiblehash'):
             pos = self.index.search(key)
             if pos is not None:
                 return self.file_manager.read_record(pos)

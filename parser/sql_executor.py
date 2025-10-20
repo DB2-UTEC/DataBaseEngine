@@ -673,12 +673,12 @@ class SQLExecutor:
             if index_type in ['SEQ', 'SEQUENTIAL']:
                 if not hasattr(structure, 'get_all'):
                     print(f"ERROR: Sequential File no tiene método get_all")
-                    return []  # ✅ Retornar lista vacía en lugar de dict
+                    return []  # etornar lista vacía en lugar de dict
                 
                 records = structure.get_all()
                 print(f"DEBUG get_all() retornó: {type(records)} con {len(records) if records else 0} elementos")
                 
-                # ✅ VERIFICAR que sea lista
+                #  VERIFICAR que sea lista
                 if not isinstance(records, list):
                     print(f"WARN: get_all() no retornó lista: {type(records)}")
                     return []
@@ -753,13 +753,13 @@ class SQLExecutor:
                     return []
             
             print(f"WARN: SELECT * no implementado para índice {index_type}")
-            return []  # ✅ Siempre retornar lista
+            return []  # iempre retornar lista
             
         except Exception as e:
             print(f"ERROR en _select_all: {e}")
             import traceback
             traceback.print_exc()
-            return []  # ✅ Retornar lista vacía en caso de error
+            return []  #  Retornar lista vacía en caso de error
     
     def _execute_insert(self, plan: ExecutionPlan) -> Dict[str, Any]:
         table_name = plan.data['table_name']
