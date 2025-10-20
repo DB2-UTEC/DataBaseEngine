@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  backend:
+    image: python:3.14-slim
+    container_name: bd2-backend
+    working_dir: /app/backend
+    volumes:
+      - ./backend:/app/backend
+      - bd2-volu:/app/backend
+    command: sh -c "pip install flask flask_cors lark && python app.py"
+    ports:
+      - "3001:3001"
+    environment:
+      - FLASK_ENV=development
+
+  frontend:
+    image: node:20-alpine
+    container_name: bd2-frontend
+    working_dir: /app/front/db-manager
+    volumes:
+      - ./front/db-manager:/app/front/db-manager
+    command: sh -c "npm install && npm run dev"
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    environment:
+      - HOST=0.0.0.0
+      - PORT=5173
+
+volumes:
+  bd2-volu:

@@ -1,9 +1,10 @@
 import pickle
 import os
+import json
 import struct
 from typing import List, Any, Optional
 from core.file_manager import FileManager
-from core.models import Table, Record
+from core.models import Table, Record, Field
 
 class BPlusTreeNode:
     def __init__(self, order, is_leaf=False):
@@ -16,13 +17,15 @@ class BPlusTreeNode:
 
 
 class BPlusTreePersistence:
-    """Maneja la persistencia del árbol B+ usando archivos separados."""
-    
-    def __init__(self, index_filename: str, table: Table):
+    """Maneja la persistencia del árbol B+ (solo índice) usando un archivo pickle y metadatos binarios."""
+    def __init__(self, index_filename: str, order: int = 4):
         self.index_filename = index_filename
-        self.table = table
+        self.order = order
         self.node_counter = 0
+        self.root_id = -1
+        # Preparar metadatos si existen
         self._initialize_index_metadata()
+
     
     def _initialize_index_metadata(self):
         """Inicializa los metadatos del índice."""
@@ -95,7 +98,8 @@ class BPlusTreePersistence:
             with open(self.index_filename, 'rb') as f:
                 tree_data = pickle.load(f)
             
-            tree = BPlusTree(tree_data['order'], self.index_filename, self.table)
+            # Cargar el árbol únicamente con su estructura; el FileManager lo gestiona BPlusTree
+            tree = BPlusTree(order=tree_data['order'], index_filename=self.index_filename)
             tree.root = tree_data['root']
             self.node_counter = tree_data.get('node_counter', 0)
             
@@ -107,20 +111,36 @@ class BPlusTreePersistence:
 
 
 class BPlusTree:
-    def __init__(self, order=4, index_filename: str = None, table: Table = None):
+    def __init__(self, order=4, index_filename: Optional[str] = None, table: Optional[Table] = None):
         self.root = BPlusTreeNode(order, is_leaf=True)
         self.order = order
         self.table = table
+        self.index_filename = index_filename
         self.data_file_manager = None
         self.persistence = None
-        
+
+        # Configurar persistencia del índice
+        if index_filename:
+            # Asegurar directorio
+            dir_name = os.path.dirname(index_filename)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
+            self.persistence = BPlusTreePersistence(index_filename=index_filename, order=order)
+
+        # Configurar almacenamiento de datos si hay tabla
         if index_filename and table:
-            # Crear FileManager para datos
             data_filename = index_filename.replace('.idx', '.dat')
+            dir_name = os.path.dirname(data_filename)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
+            if not os.path.exists(data_filename):
+                open(data_filename, 'wb').close()
             self.data_file_manager = FileManager(data_filename, table)
-            # Crear persistencia para el índice
-            self.persistence = BPlusTreePersistence(index_filename, table)
-        
+
+        # Si no se pasó Table, intentar cargar de metadatos para poder crear .dat al vuelo
+        if index_filename and self.table is None:
+            self._try_initialize_from_metadata()
+
         self._auto_save = True  # Guardar automáticamente después de cada operación
 
     def is_empty(self):
@@ -130,7 +150,20 @@ class BPlusTree:
     def add_record(self, record: Record) -> int:
         """Añade un registro a la tabla y actualiza el índice."""
         if not self.data_file_manager:
-            raise ValueError("FileManager no inicializado")
+            # Inicializar FileManager usando la tabla del propio record
+            if not self.index_filename:
+                raise ValueError("No hay index_filename para derivar el archivo .dat")
+            if not record or not getattr(record, 'table', None):
+                raise ValueError("No hay Table asociado para inicializar FileManager")
+            # Asegurar FM
+            data_filename = self.index_filename.replace('.idx', '.dat')
+            dir_name = os.path.dirname(data_filename)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
+            if not os.path.exists(data_filename):
+                open(data_filename, 'wb').close()
+            self.table = record.table
+            self.data_file_manager = FileManager(data_filename, self.table)
         
         # Añadir el registro a la tabla
         pos = self.data_file_manager.add_record(record)
@@ -181,26 +214,55 @@ class BPlusTree:
         return False
     
     def get_all_records(self) -> List[Record]:
-        """Obtiene todos los registros de la tabla."""
+        """Obtiene todos los registros como lista de diccionarios {campo: valor}.
+        Formato alineado a lo que retorna ISAM a través del FileManager.
+        """
         if not self.data_file_manager:
-            raise ValueError("FileManager no inicializado")
-        
-        return self.data_file_manager.get_all_records()
+            # Intentar inicializar desde metadatos si no hay Table
+            if not self.table:
+                self._try_initialize_from_metadata()
+            if not self.table:
+                # No podemos leer sin conocer el layout; retornar vacío en lugar de fallar
+                return []
+            self._ensure_file_manager(self.table)
+
+        records = self.data_file_manager.get_all_records()
+        if not records:
+            return []
+
+        # Convertir cada Record a dict usando los nombres de campos
+        results: List[dict] = []
+        for rec in records:
+            try:
+                field_names = [f.name for f in (rec.table.fields if hasattr(rec, 'table') and rec.table else self.table.fields)]
+                results.append({name: value for name, value in zip(field_names, rec.values)})
+            except Exception as e:
+                # Fallback seguro, mostrar error real
+                results.append({'data': str(rec.values), 'error': str(e)})
+        return results
+
+
     
     def range_query(self, start_key: Any, end_key: Any) -> List[Record]:
-        """Realiza una consulta por rango y devuelve los registros."""
+        """Realiza una consulta por rango y devuelve los registros como lista de dicts (formato ISAM)."""
         if not self.data_file_manager:
-            raise ValueError("FileManager no inicializado")
-        
+            if not self.table:
+                self._try_initialize_from_metadata()
+            if not self.table:
+                return []
+            self._ensure_file_manager(self.table)
+
         positions = self.range_search(start_key, end_key)
-        records = []
-        
+        results = []
         for key, pos in positions:
             record = self.data_file_manager.read_record(pos)
             if record:
-                records.append(record)
-        
-        return records
+                try:
+                    field_names = [f.name for f in (record.table.fields if hasattr(record, 'table') and record.table else self.table.fields)]
+                    results.append({name: value for name, value in zip(field_names, record.values)})
+                except Exception as e:
+                    results.append({'data': str(record.values), 'error': str(e)})
+        return results
     
     def load_from_file(self):
         """Carga el árbol desde el archivo de persistencia."""
@@ -229,44 +291,159 @@ class BPlusTree:
     # BÚSQUEDA
     # -------------------------------
     def search(self, key, node=None):
+        # ISAM-style: return a list of dicts (one per record) for the given key
+        if self.index_filename:
+            print(f"[DEBUG][search] Usando archivo de índice: {self.index_filename}")
+        else:
+            print(f"[DEBUG][search] Sin archivo de índice asociado.")
+        # Forzar tipo de clave si la tabla y el campo clave son int
+        if self.table:
+            key_field = self.table.key_field
+            for f in self.table.fields:
+                if f.name == key_field and f.data_type == int:
+                    try:
+                        key = int(key)
+                    except Exception:
+                        pass
+                    break
         node = node or self.root
+        pos = None
         if node.is_leaf:
+            print(f"[DEBUG][search] Buscando clave: {key} (tipo: {type(key)}) en hoja con claves: {node.keys} (tipos: {[type(k) for k in node.keys]})")
             for i, item in enumerate(node.keys):
                 if item == key:
-                    return node.children[i]  # Return position
-            return None
+                    print(f"[DEBUG][search] ¡Clave encontrada! Posición: {node.children[i]}")
+                    pos = node.children[i]
+                    break
+            if pos is None:
+                print(f"[DEBUG][search] Clave {key} NO encontrada en hoja.")
+                return []
         else:
             for i, item in enumerate(node.keys):
                 if key < item:
                     return self.search(key, node.children[i])
             return self.search(key, node.children[-1])
 
+        # At this point, pos is the position of the record for the key
+        if not self.data_file_manager:
+            if not self.table:
+                self._try_initialize_from_metadata()
+            if not self.table:
+                return []
+            self._ensure_file_manager(self.table)
+        record = self.data_file_manager.read_record(pos)
+        if record:
+            try:
+                field_names = [f.name for f in (record.table.fields if hasattr(record, 'table') and record.table else self.table.fields)]   
+                return [{name: value for name, value in zip(field_names, record.values)}][0]
+            except Exception as e:
+                return [{'data': str(record.values), 'error': str(e)}]
+        return []
+
     def range_search(self, start, end):
-        """Search for all keys in the range [start, end] and return list of (key, pos) tuples."""
-        result = []
+        # Devuelve una lista de dicts (registros completos) igual que range_query
+        if self.index_filename:
+            print(f"[DEBUG][range_search] Usando archivo de índice: {self.index_filename}")
+        else:
+            print(f"[DEBUG][range_search] Sin archivo de índice asociado.")
+        # Forzar tipo de clave si la tabla y el campo clave son int
+        if self.table:
+            key_field = self.table.key_field
+            for f in self.table.fields:
+                if f.name == key_field and f.data_type == int:
+                    try:
+                        start = int(start)
+                        end = int(end)
+                    except Exception:
+                        pass
+                    break
+        # Buscar posiciones en el rango
+        positions = []
         if self.is_empty():
-            return result
-        
-        # Find the first leaf node
+            print(f"[DEBUG][range_search] El árbol está vacío.")
+            return []
         node = self.root
         while not node.is_leaf:
             node = node.children[0]
-        
-        # Traverse all leaf nodes
         while node:
+            print(f"[DEBUG][range_search] Hoja con claves: {node.keys} (tipos: {[type(k) for k in node.keys]}) | Buscando en rango: {start} - {end} (tipos: {type(start)} - {type(end)})")
             for i, key in enumerate(node.keys):
                 if start <= key <= end:
-                    result.append((key, node.children[i]))
+                    print(f"[DEBUG][range_search] Clave {key} en rango, posición: {node.children[i]}")
+                    positions.append((key, node.children[i]))
                 elif key > end:
                     break
             node = node.next
+        if not positions:
+            print(f"[DEBUG][range_search] Ninguna clave encontrada en el rango.")
+            return []
+        # Convertir posiciones a registros completos (dicts)
+        if not self.data_file_manager:
+            if not self.table:
+                self._try_initialize_from_metadata()
+            if not self.table:
+                return []
+            self._ensure_file_manager(self.table)
+        results = []
+        for key, pos in positions:
+            record = self.data_file_manager.read_record(pos)
+            if record:
+                try:
+                    field_names = [f.name for f in (record.table.fields if hasattr(record, 'table') and record.table else self.table.fields)]
+                    results.append({name: value for name, value in zip(field_names, record.values)})
+                except Exception as e:
+                    results.append({'data': str(record.values), 'error': str(e)})
         
-        return result
+        return results
 
     # -------------------------------
     # INSERCIÓN
     # -------------------------------
     def insert(self, key, pos):
+        # Forzar tipo de clave si la tabla y el campo clave son int
+        if self.table:
+            key_field = self.table.key_field
+            for f in self.table.fields:
+                if f.name == key_field and f.data_type == int:
+                    try:
+                        key = int(key)
+                    except Exception:
+                        pass
+                    break
+        # Si pos es Record o valores, persistir primero
+        if isinstance(pos, Record):
+            pos = self.add_record(pos)
+        elif isinstance(pos, (list, tuple)):
+            values = list(pos)
+            if not self.table:
+                # Crear una tabla mínima para poder empacar el registro
+                fields: List[Field] = []
+                for i, v in enumerate(values):
+                    if isinstance(v, int):
+                        dtype, size = int, 0
+                    elif isinstance(v, float):
+                        dtype, size = float, 0
+                    else:
+                        dtype, size = str, 50
+                    fields.append(Field(name=f"col{i}", data_type=dtype, size=size))
+                base = os.path.splitext(os.path.basename(self.index_filename or 'tabla'))[0]
+                for suf in ['.idx', '_btree', '_hash', '_isam']:
+                    if base.endswith(suf):
+                        base = base[: -len(suf)]
+                self.table = Table(name=base or 'tabla', fields=fields, key_field=fields[0].name)
+            # Asegurar FileManager y persistir
+            if not self.data_file_manager:
+                data_filename = self.index_filename.replace('.idx', '.dat') if self.index_filename else None
+                if not data_filename:
+                    raise ValueError("No hay index_filename para derivar el archivo .dat")
+                dir_name = os.path.dirname(data_filename)
+                if dir_name:
+                    os.makedirs(dir_name, exist_ok=True)
+                if not os.path.exists(data_filename):
+                    open(data_filename, 'wb').close()
+                self.data_file_manager = FileManager(data_filename, self.table)
+            pos = self.add_record(Record(self.table, values))
+
         root = self.root
         new_child = self._insert_recursive(root, key, pos)
         if new_child:
@@ -274,18 +451,17 @@ class BPlusTree:
             new_root.keys = [new_child[0]]
             new_root.children = [root, new_child[1]]
             self.root = new_root
-        
-        # Guardar automáticamente después de la inserción
-        self._auto_save_if_enabled()
+        # Guardar automáticamente el árbol en el archivo .idx después de cada inserción
+        self.save_to_file()
 
     def _insert_recursive(self, node, key, pos):
         if node.is_leaf:
-            # ya existe la clave
+            # Actualizar si ya existe
             if key in node.keys:
                 idx = node.keys.index(key)
-                node.children[idx] = pos  # Update position
+                node.children[idx] = pos
                 return None
-            # insertar nueva clave
+            # Insertar ordenado
             i = 0
             while i < len(node.keys) and node.keys[i] < key:
                 i += 1
@@ -295,7 +471,7 @@ class BPlusTree:
                 return self._split_leaf(node)
             return None
         else:
-            # bajar recursivamente
+            # Bajar recursivamente
             i = 0
             while i < len(node.keys) and key >= node.keys[i]:
                 i += 1
@@ -308,12 +484,103 @@ class BPlusTree:
                     return self._split_internal(node)
             return None
 
+    def _split_leaf(self, node):
+        mid = len(node.keys) // 2
+        new_node = BPlusTreeNode(self.order, is_leaf=True)
+        new_node.keys = node.keys[mid:]
+        new_node.children = node.children[mid:]
+        node.keys = node.keys[:mid]
+        node.children = node.children[:mid]
+
+        new_node.next = node.next
+        node.next = new_node
+
+        return new_node.keys[0], new_node
+
+    # -------------------------------
+    # Inicialización de almacenamiento (.dat)
+    # -------------------------------
+    def _data_filename(self) -> Optional[str]:
+        if not self.index_filename:
+            return None
+        return self.index_filename.replace('.idx', '.dat')
+
+    def _ensure_file_manager(self, table: Optional[Table] = None):
+        """Asegura que exista un FileManager listo para escribir el .dat."""
+        if self.data_file_manager:
+            return
+        if table is not None and self.table is None:
+            self.table = table
+        if not self.table:
+            raise ValueError("No hay Table asociado para inicializar FileManager")
+        data_filename = self._data_filename()
+        if not data_filename:
+            raise ValueError("No hay index_filename para derivar el archivo .dat")
+        dir_name = os.path.dirname(data_filename)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+        if not os.path.exists(data_filename):
+            open(data_filename, 'wb').close()
+        self.data_file_manager = FileManager(data_filename, self.table)
+
+    def _derive_table_name(self) -> Optional[str]:
+        if not self.index_filename:
+            return None
+        base = os.path.splitext(os.path.basename(self.index_filename))[0]
+        for suf in ['_btree', '_hash', '_isam', '_rtree']:
+            if base.endswith(suf):
+                base = base[: -len(suf)]
+                break
+        return base or None
+
+    def _try_initialize_from_metadata(self):
+        """Intenta cargar Table desde data/tables_metadata.json y crear FileManager."""
+        table_name = self._derive_table_name()
+        if not table_name:
+            return
+        meta_path = os.path.join('data', 'tables_metadata.json')
+        if not os.path.exists(meta_path):
+            return
+        try:
+            with open(meta_path, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+            if table_name not in meta:
+                return
+            tbl_info = meta[table_name]
+            fields_info = tbl_info.get('fields') or []
+            key_field = tbl_info.get('key_field') or (fields_info[0]['name'] if fields_info else 'id')
+
+            field_objs: List[Field] = []
+            for fdef in fields_info:
+                t = fdef.get('type')
+                size = fdef.get('size', 50)
+                if t in ('INT', int):
+                    dtype = int
+                    size = 0
+                elif t in ('FLOAT', float):
+                    dtype = float
+                    size = 0
+                else:
+                    dtype = str
+                    if not isinstance(size, int) or size <= 0:
+                        size = 50
+                field_objs.append(Field(name=fdef['name'], data_type=dtype, size=size))
+
+            if field_objs:
+                self.table = Table(name=table_name, fields=field_objs, key_field=key_field)
+                self._ensure_file_manager(self.table)
+        except Exception:
+            # No romper flujo si falla
+            pass
+
+    
+
     def update(self, key, pos):
         """Update the position for an existing key."""
         if self.search(key) is not None:
             self._update_recursive(self.root, key, pos)
             # Guardar automáticamente después de la actualización
-            self._auto_save_if_enabled()
+            self.save_to_file()
         else:
             # If key doesn't exist, insert it
             self.insert(key, pos)
@@ -330,19 +597,6 @@ class BPlusTree:
                     self._update_recursive(node.children[i], key, pos)
                     return
             self._update_recursive(node.children[-1], key, pos)
-
-    def _split_leaf(self, node):
-        mid = len(node.keys) // 2
-        new_node = BPlusTreeNode(self.order, is_leaf=True)
-        new_node.keys = node.keys[mid:]
-        new_node.children = node.children[mid:]
-        node.keys = node.keys[:mid]
-        node.children = node.children[:mid]
-
-        new_node.next = node.next
-        node.next = new_node
-
-        return new_node.keys[0], new_node
 
     def _split_internal(self, node):
         mid = len(node.keys) // 2
@@ -364,9 +618,8 @@ class BPlusTree:
         # si la raíz se queda sin claves y no es hoja, se baja un nivel
         if not self.root.is_leaf and len(self.root.keys) == 0:
             self.root = self.root.children[0]
-        
-        # Guardar automáticamente después de la eliminación
-        self._auto_save_if_enabled()
+        # Guardar automáticamente el árbol en el archivo .idx después de la eliminación
+        self.save_to_file()
 
     def _delete_recursive(self, node, key):
         if node.is_leaf:

@@ -1,0 +1,16 @@
+codigo,nombre,categoria,precio,stock
+1001,Laptop HP,Electrónica,2500.50,15
+1002,Mouse Logitech,Accesorios,45.99,120
+1003,Teclado Mecánico,Accesorios,189.90,45
+1004,Monitor LG 27",Electrónica,850.00,30
+1005,Webcam HD,Accesorios,120.50,60
+1006,Auriculares Sony,Audio,299.99,25
+1007,SSD 1TB Samsung,Almacenamiento,450.00,40
+1008,RAM 16GB Corsair,Componentes,280.75,35
+1009,Impresora Canon,Periféricos,320.00,20
+1010,Router TP-Link,Redes,95.50,80
+1011,Cable HDMI,Accesorios,25.90,200
+1012,Mousepad Gamer,Accesorios,35.00,150
+1013,Micrófono USB,Audio,180.00,18
+1014,Hub USB 3.0,Accesorios,42.50,65
+1015,Adaptador WiFi,Redes,38.90,95

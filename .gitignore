@@ -5,7 +5,8 @@
 *.header
 
 
-
+node_modules/
+__pyccache__
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

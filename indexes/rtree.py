@@ -448,3 +448,15 @@ class RTreeIndex:
     def range_search(self, bbox):
         return self.rtree.intersection_search(bbox)
 
+    def spatial_search(self, point, radius_or_k):
+        """
+        Búsqueda espacial unificada:
+        - Si radius_or_k es float: búsqueda por radio
+        - Si radius_or_k es int: k-vecinos más cercanos
+        """
+        return self.rtree.rangeSearch(point, radius_or_k)
+
+    def bbox_search(self, bbox):
+        """Búsqueda por rectángulo delimitador"""
+        return self.rtree.intersection_search(bbox)
+

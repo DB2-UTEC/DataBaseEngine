@@ -1,0 +1,11 @@
+id,nombre,lat,lon,tipo,ventas_mes
+1,Tienda Centro,-12.046374,-77.042793,Supermercado,85000
+2,Tienda Norte,-12.023456,-77.051234,Minimarket,32000
+3,Tienda Sur,-12.089123,-77.033456,Supermercado,67000
+4,Tienda Este,-12.056789,-77.015678,Bodega,18000
+5,Tienda Oeste,-12.048901,-77.068901,Supermercado,92000
+6,Tienda Plaza,-12.047500,-77.043000,Mall,150000
+7,Tienda Barrio,-12.055000,-77.038000,Minimarket,28000
+8,Tienda Express,-12.042000,-77.045000,Conveniencia,45000
+9,Tienda Principal,-12.046000,-77.042500,Supermercado,110000
+10,Tienda Local,-12.051000,-77.040000,Bodega,22000

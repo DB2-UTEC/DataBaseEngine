@@ -39,10 +39,9 @@ export default function App() {
       setFilteredTables(tablesData);
     } catch (error) {
       console.error('Error cargando tablas:', error);
-      // Fallback a datos mock si falla
-      const mockTables = ['usuarios', 'productos', 'pedidos', 'inventario', 'clientes'];
-      setTables(mockTables);
-      setFilteredTables(mockTables);
+      // Si falla la llamada al backend, no mostrar tablas por defecto.
+      setTables([]);
+      setFilteredTables([]);
     }
   };
 
@@ -91,10 +90,11 @@ export default function App() {
       setFilteredTables(searchResults);
     } catch (error) {
       console.error('Error buscando tablas:', error);
-      // Fallback a búsqueda local
-      const filtered = tables.filter(table => 
-        table.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+      // Fallback a búsqueda local soportando tanto strings como objetos {name}
+      const filtered = tables.filter(table => {
+        const name = typeof table === 'string' ? table : (table && table.name ? table.name : String(table));
+        return name.toLowerCase().includes(searchTerm.toLowerCase());
+      });
       setFilteredTables(filtered);
     }
   };

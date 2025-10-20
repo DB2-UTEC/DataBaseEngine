@@ -1,6 +1,14 @@
 import struct
 import pickle
 import os
+import sys
+
+# Agregar el directorio padre al path para importar FileManager
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.file_manager import FileManager
+from core.models import Table, Record
+from typing import List, Any, Optional, Union
 
 # Constantes de tamaño de bloque/índice
 IDX_ENTRY_SIZE = struct.calcsize('ii')
@@ -9,12 +17,18 @@ IDX_BLOCK_FACTOR = (4096 - IDX_PAGE_HEADER) // IDX_ENTRY_SIZE
 
 
 class ISAMIndex:
-    def __init__(self, data_filename: str, index_filename: str = None, file_manager=None, persist_path: str = None):
+    def __init__(self, data_filename: str, index_filename: str = None, file_manager=None, persist_path: str = None, table: Table = None):
         # metadatos
         self.data_filename = data_filename
         self.index_filename = index_filename or (data_filename.replace('.dat', '.idx') if data_filename else None)
-        self.file_manager = file_manager
         self.persist_path = persist_path or self.index_filename
+        self.table = table
+
+        # Inicializar FileManager si no se proporciona
+        if not file_manager and table:
+            self.file_manager = FileManager(data_filename, table)
+        else:
+            self.file_manager = file_manager
 
         # índices en memoria
         self.idx_l1 = []  # raiz (lista de (first_key, start_index_in_l2) )
@@ -71,9 +85,29 @@ class ISAMIndex:
     def is_empty(self):
         return len(self.idx_l3) == 0
 
-    def insert(self, key, pos):
+    def insert(self, key, values):
         """
-        Inserta (key,pos). Comportamiento mínimo ISAM con overflow:
+        Inserta un registro en ISAM.
+        Si values es una lista, crea un Record y lo almacena en FileManager.
+        Si values es una posición, asume que ya está almacenado.
+        """
+        if isinstance(values, list):
+            # Crear Record y almacenarlo en FileManager
+            if not self.file_manager:
+                raise ValueError("FileManager no inicializado")
+            
+            record = Record(self.table, values)
+            pos = self.file_manager.add_record(record)
+        else:
+            # values es una posición ya existente
+            pos = values
+
+        # Insertar en el índice ISAM
+        self._insert_to_index(key, pos)
+
+    def _insert_to_index(self, key, pos):
+        """
+        Inserta (key,pos) en el índice ISAM. Comportamiento mínimo ISAM con overflow:
         - Si la clave no existe -> se inserta en idx_l3 (base).
         - Si la clave ya existe en base -> pos se añade a self.overflow[key].
         (Así mantenemos una posición 'base' en idx_l3 y overflow encadenado).
@@ -116,16 +150,26 @@ class ISAMIndex:
 
     def search(self, key):
         """
-        Retorna la posición 'base' asociada a key o None.
-        (Para acceder a todas las posiciones usar get_all_positions)
+        Busca un registro por clave y retorna los valores del registro.
         """
         if not self.idx_l3:
             return None
+        
+        # Buscar en el índice
         i = self.insert_pos(self.idx_l3, key)
+        pos = None
+        
         if i < len(self.idx_l3) and self.idx_l3[i][0] == key:
-            return self.idx_l3[i][1]
-        if i > 0 and self.idx_l3[i - 1][0] == key:
-            return self.idx_l3[i - 1][1]
+            pos = self.idx_l3[i][1]
+        elif i > 0 and self.idx_l3[i - 1][0] == key:
+            pos = self.idx_l3[i - 1][1]
+        
+        if pos is not None and self.file_manager:
+            # Leer el registro desde FileManager
+            record = self.file_manager.read_record(pos)
+            if record:
+                return record.values
+        
         return None
 
     def get_all_positions(self, key):
@@ -181,8 +225,9 @@ class ISAMIndex:
 
     def range_search(self, start_key, end_key):
         results = []
-        if not self.idx_l3:
+        if not self.idx_l3 or not self.file_manager:
             return results
+        
         # localizar inicio
         i = self.insert_pos(self.idx_l3, start_key)
         if i > 0 and self.idx_l3[i - 1][0] >= start_key:
@@ -191,10 +236,18 @@ class ISAMIndex:
         j = i
         while j < n and self.idx_l3[j][0] <= end_key:
             key, base_pos = self.idx_l3[j]
-            results.append((key, base_pos))
+            
+            # Leer registro base
+            record = self.file_manager.read_record(base_pos)
+            if record:
+                results.append(record)
+            
+            # Leer registros de overflow
             extras = self.overflow.get(key, [])
             for p in extras:
-                results.append((key, p))
+                overflow_record = self.file_manager.read_record(p)
+                if overflow_record:
+                    results.append(overflow_record)
             j += 1
         return results
 
@@ -262,6 +315,32 @@ class ISAMIndex:
             print(f"[ISAM] Error cargando índice desde '{path}': {e}")
             return False
     
+    def get_all(self):
+        """
+        Retorna todos los registros almacenados en el índice ISAM.
+        Útil para SELECT * FROM tabla.
+        """
+        results = []
+        
+        if not self.file_manager:
+            return results
+        
+        # Recorrer todas las entradas en idx_l3 (hojas)
+        for key, pos in self.idx_l3:
+            # Leer el registro base
+            record = self.file_manager.read_record(pos)
+            if record:
+                results.append(record)
+            
+            # Leer registros de overflow si existen
+            if key in self.overflow:
+                for overflow_pos in self.overflow[key]:
+                    overflow_record = self.file_manager.read_record(overflow_pos)
+                    if overflow_record:
+                        results.append(overflow_record)
+        
+        return results
+
     def debug_print(self, max_show=10):
         print("ISAMIndex: entries:", len(self.idx_l3))
         print("L1:", self.idx_l1[:max_show])

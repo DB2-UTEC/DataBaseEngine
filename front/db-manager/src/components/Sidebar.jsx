@@ -3,6 +3,9 @@ import { Box, Typography, List, ListItemButton, ListItemIcon, ListItemText } fro
 import TableRowsIcon from '@mui/icons-material/TableRows';
 
 export default function Sidebar({ tables = [] }) {
+  // tables may be array of strings or array of objects { name, file, columns }
+  const normalized = tables.map(t => (typeof t === 'string' ? { name: t } : (t && t.name ? t : { name: String(t) })));
+
   return (
     <Box sx={{ 
       width: '100%', 
@@ -12,19 +15,19 @@ export default function Sidebar({ tables = [] }) {
       padding: '8px' 
     }}>
       <Typography variant="h6" sx={{ padding: '16px 16px 8px' }}>
-        Tablas ({tables.length})
+        Tablas ({normalized.length})
       </Typography>
       <List dense>
-        {tables.map(tabla => (
-          <ListItemButton key={tabla}>
+        {normalized.map(tabla => (
+          <ListItemButton key={tabla.name}>
             <ListItemIcon>
               <TableRowsIcon sx={{ color: '#9f7aea' }} />
             </ListItemIcon>
-            <ListItemText primary={tabla} />
+            <ListItemText primary={tabla.name} />
           </ListItemButton>
         ))}
       </List>
-      {tables.length === 0 && (
+      {normalized.length === 0 && (
         <Typography variant="caption" sx={{ padding: '16px', color: '#a0aec0' }}>
           No se encontraron tablas
         </Typography>

@@ -1,0 +1,40 @@
+{
+  "Productos": {
+    "table_name": "Productos",
+    "fields": [
+      {
+        "name": "codigo",
+        "type": "INT",
+        "size": 0,
+        "index": null
+      },
+      {
+        "name": "nombre",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      },
+      {
+        "name": "categoria",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      },
+      {
+        "name": "precio",
+        "type": "FLOAT",
+        "size": 0,
+        "index": null
+      },
+      {
+        "name": "stock",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      }
+    ],
+    "index_type": "BTREE",
+    "key_field": "codigo",
+    "source_file": "C:\\Users\\frans\\OneDrive\\Escritorio\\dev\\BD2-Restructuracion\\data\\productos.csv"
+  }
+}

@@ -61,6 +61,7 @@ export default function MainContent({
           <ResultsTable 
             results={results} 
             stats={stats}
+            loading={loading}
             currentPage={currentPage}
             totalRows={totalRows}
             onPageChange={onExecute}
