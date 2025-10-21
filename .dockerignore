@@ -1,0 +1,18 @@
+# Ignorar dependencias pesadas
+front/db-manager/node_modules
+backend/__pycache__
+backend/.venv
+
+# Ignorar Vite build (si no lo usas en dev)
+front/db-manager/dist
+
+# Ignorar git, IDE y cachés
+.git
+.gitignore
+*.pyc
+*.pyo
+__pycache__
+.DS_Store
+.env
+.vscode
+.idea

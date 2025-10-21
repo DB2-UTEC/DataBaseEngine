@@ -151,4 +151,6 @@ def _map_executor_result_to_response(ex_res, plan, page=1, limit=10):
 
 
 if __name__ == '__main__':
-    app.run(port=3001, debug=True)
+    print("🚀 Backend iniciando en http://0.0.0.0:3001")
+    app.run(host='0.0.0.0', port=3001, debug=True)
+

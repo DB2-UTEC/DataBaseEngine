@@ -1,4 +1,5 @@
-const API_BASE_URL = 'http://localhost:3001/api'; // Ajusta según tu backend
+// Usa la variable de entorno si está disponible (Docker), sino usa localhost (desarrollo local)
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export const apiService = {
   // Obtener lista de tablas
