@@ -79,11 +79,12 @@ class ExtendibleHashingPersistence:
 
 class ExtendibleHashing:
     # D = profundidad global, 
-    def __init__(self, bucketSize = 3, index_filename: str = None):
+    def __init__(self, bucketSize = 3, index_filename: str = None, table = None):
         self.D = 2
         self.bucketSize = bucketSize
         self.persistence = ExtendibleHashingPersistence(index_filename) if index_filename else None
         self._auto_save = True  # Guardar automáticamente después de cada operación
+        self.table = table
 
         bucket0 = Bucket(d = 1, fb = bucketSize)
         bucket1 = Bucket(d = 1, fb = bucketSize)
@@ -162,24 +163,39 @@ class ExtendibleHashing:
                 
 
     def get_all(self):
-        """Obtiene todos los registros (key, value) del Extendible Hashing."""
+        """Obtiene todos los registros formateados con nombres de columna."""
         all_records = []
-        seen_buckets = set()  # Para evitar procesar buckets duplicados
-        
+        seen_buckets = set()
+
         for bucket in self.directory:
-            # Evitar procesar el mismo bucket múltiples veces
             if id(bucket) in seen_buckets:
                 continue
             seen_buckets.add(id(bucket))
             
-            # Procesar bucket principal
             current_bucket = bucket
             while current_bucket:
-                # Agregar todos los registros del bucket actual
-                all_records.extend(current_bucket.records)
-                # Mover al siguiente bucket en la cadena (si existe)
+                for key, values in current_bucket.records:
+                    #  FORMATO MEJORADO: Usar estructura de tabla si está disponible
+                    if self.table and isinstance(values, (list, tuple)):
+                        # Crear diccionario con nombres de columna
+                        record_dict = {}
+                        field_names = [field.name for field in self.table.fields]
+                        
+                        # Si values tiene la misma longitud que field_names, usar mapeo directo
+                        if len(values) == len(field_names):
+                            for i, col_name in enumerate(field_names):
+                                record_dict[col_name] = values[i]
+                        else:
+                            # Si no coincide, usar formato alternativo
+                            record_dict = {'key': key, 'values': values}
+                        
+                        all_records.append(record_dict)
+                    else:
+                        # Fallback al formato anterior
+                        all_records.append({'key': key, 'values': values})
+                
                 current_bucket = current_bucket.next
-        
+
         return all_records
 
     # Inserción 
