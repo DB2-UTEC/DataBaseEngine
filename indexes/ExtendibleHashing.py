@@ -161,6 +161,26 @@ class ExtendibleHashing:
                     self.insert(k,v)
                 
 
+    def get_all(self):
+        """Obtiene todos los registros (key, value) del Extendible Hashing."""
+        all_records = []
+        seen_buckets = set()  # Para evitar procesar buckets duplicados
+        
+        for bucket in self.directory:
+            # Evitar procesar el mismo bucket múltiples veces
+            if id(bucket) in seen_buckets:
+                continue
+            seen_buckets.add(id(bucket))
+            
+            # Procesar bucket principal
+            current_bucket = bucket
+            while current_bucket:
+                # Agregar todos los registros del bucket actual
+                all_records.extend(current_bucket.records)
+                # Mover al siguiente bucket en la cadena (si existe)
+                current_bucket = current_bucket.next
+        
+        return all_records
 
     # Inserción 
     def insert(self, key , value):
