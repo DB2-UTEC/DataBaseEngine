@@ -37,7 +37,7 @@ class DatabaseManager:
                 raise ValueError("R-Tree requires at least two spatial fields (int or float).")
             self.index = RTreeIndex(self.index_filename, spatial_fields, file_manager=self.file_manager)
         elif index_type == 'extendiblehash': 
-            self.index = ExtendibleHashing(bucketSize=3, index_filename=self.index_filename)
+            self.index = ExtendibleHashing(bucketSize=3, index_filename=self.index_filename, table = table)
         else:
             # Comportamiento por defecto: B+ Tree con persistencia
             self.index = BPlusTree(order=order, index_filename=self.index_filename)

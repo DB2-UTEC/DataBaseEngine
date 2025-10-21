@@ -150,5 +150,157 @@
     "index_type": "EXTENDIBLEHASH",
     "key_field": "codigo",
     "source_file": "Desktop/DataBaseEngine/data/productos.csv"
+  },
+  "Productos12": {
+    "table_name": "Productos12",
+    "fields": [
+      {
+        "name": "codigo",
+        "type": "INT",
+        "size": 0,
+        "index": null
+      },
+      {
+        "name": "nombre",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      },
+      {
+        "name": "categoria",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      },
+      {
+        "name": "precio",
+        "type": "FLOAT",
+        "size": 0,
+        "index": null
+      },
+      {
+        "name": "stock",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      }
+    ],
+    "index_type": "EXTENDIBLEHASH",
+    "key_field": "codigo",
+    "source_file": "Desktop/DataBaseEngine/data/productos.csv"
+  },
+  "Productos13": {
+    "table_name": "Productos13",
+    "fields": [
+      {
+        "name": "codigo",
+        "type": "INT",
+        "size": 0,
+        "index": null
+      },
+      {
+        "name": "nombre",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      },
+      {
+        "name": "categoria",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      },
+      {
+        "name": "precio",
+        "type": "FLOAT",
+        "size": 0,
+        "index": null
+      },
+      {
+        "name": "stock",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      }
+    ],
+    "index_type": "EXTENDIBLEHASH",
+    "key_field": "codigo",
+    "source_file": "Desktop/DataBaseEngine/data/productos.csv"
+  },
+  "Productos14": {
+    "table_name": "Productos14",
+    "fields": [
+      {
+        "name": "codigo",
+        "type": "INT",
+        "size": 0,
+        "index": null
+      },
+      {
+        "name": "nombre",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      },
+      {
+        "name": "categoria",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      },
+      {
+        "name": "precio",
+        "type": "FLOAT",
+        "size": 0,
+        "index": null
+      },
+      {
+        "name": "stock",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      }
+    ],
+    "index_type": "EXTENDIBLEHASH",
+    "key_field": "codigo",
+    "source_file": "Desktop/DataBaseEngine/data/productos.csv"
+  },
+  "Productos15": {
+    "table_name": "Productos15",
+    "fields": [
+      {
+        "name": "codigo",
+        "type": "INT",
+        "size": 0,
+        "index": null
+      },
+      {
+        "name": "nombre",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      },
+      {
+        "name": "categoria",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      },
+      {
+        "name": "precio",
+        "type": "FLOAT",
+        "size": 0,
+        "index": null
+      },
+      {
+        "name": "stock",
+        "type": "VARCHAR",
+        "size": 50,
+        "index": null
+      }
+    ],
+    "index_type": "EXTENDIBLEHASH",
+    "key_field": "codigo",
+    "source_file": "Desktop/DataBaseEngine/data/productos.csv"
   }
 }

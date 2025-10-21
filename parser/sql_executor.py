@@ -61,7 +61,7 @@ class SQLExecutor:
             print(f"DEBUG Recargando estructura: {table_name} ({index_type})")
             structure = self._create_structure(table_name, index_type, fields, key_field)
             
-            # ✅ VERIFICAR que no sea None
+            #  VERIFICAR que no sea None
             if structure is None:
                 raise RuntimeError(f"No se pudo recargar estructura de {table_name}")
             
@@ -339,7 +339,11 @@ class SQLExecutor:
                 # Crear directorio data/ si no existe
                 os.makedirs('data', exist_ok=True)
                 
-                structure = SequentialIndex(f"data/{table_name}.dat", table_obj)
+                structure = ExtendibleHashing(
+                    bucketSize=3, 
+                    index_filename=f"data/{table_name}_hash.idx",
+                    table=table_obj  # ✅ Pasar la tabla al constructor
+                )
                 print(f"OK Sequential File creado: {type(structure)}")
                 
             elif index_type == 'BTREE':
@@ -426,7 +430,7 @@ class SQLExecutor:
             else:
                 raise ValueError(f"Tipo de índice no soportado: {index_type}")
             
-            # ✅ VERIFICAR que structure NO sea None
+            #  VERIFICAR que structure NO sea None
             if structure is None:
                 raise RuntimeError(f"La estructura {index_type} no se creó correctamente")
             
@@ -437,7 +441,7 @@ class SQLExecutor:
             print(f"ERROR creando estructura real: {e}")
             import traceback
             traceback.print_exc()
-            raise  # ✅ LANZAR excepción en lugar de retornar None
+            raise  # LANZAR excepción en lugar de retornar None
     
     def _load_data_from_csv(self, table_name, file_path, fields, structure, index_type, key_field):
         """Carga datos desde CSV Y construye el índice."""
@@ -474,7 +478,7 @@ class SQLExecutor:
                     if index_type in ['SEQ', 'SEQUENTIAL']:
                         from core.models import Record, Table, Field
                         
-                        # ✅ CREAR CAMPOS CON LOS TIPOS CORRECTOS (no todo str)
+                        # CREAR CAMPOS CON LOS TIPOS CORRECTOS (no todo str)
                         table_fields = []
                         for field_info in fields:
                             field_type = field_info['type']
@@ -490,17 +494,17 @@ class SQLExecutor:
 
                             table_fields.append(Field(
                                 name=field_info['name'],
-                                data_type=python_type,  # ✅ Usar tipo correcto
+                                data_type=python_type,  # Usar tipo correcto
                                 size=field_info.get('size', 50)
                             ))
                         
                         table_obj = Table(table_name, table_fields, key_field)
                         
-                        # ✅ CREAR RECORD CON VALORES EN SU TIPO ORIGINAL
+                        # CREAR RECORD CON VALORES EN SU TIPO ORIGINAL
                         record = Record(table_obj, values)  # values ya tiene int, float, str
                         
                         print(f"DEBUG Insertando registro {count}: {values} (tipos: {[type(v).__name__ for v in values]})")
-                        structure.add(record)  # ✅ add() debe manejar diferentes tipos
+                        structure.add(record)  # add() debe manejar diferentes tipos
                         
                     elif index_type == 'BTREE':
                         # Insertar en B+ Tree
