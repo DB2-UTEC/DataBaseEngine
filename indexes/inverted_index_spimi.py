@@ -6,25 +6,27 @@ import unicodedata
 import hashlib
 import pickle
 import heapq
-from collections import defaultdict, Counter
-from typing import List, Dict, Tuple, Any, Iterable
-
-#from nltk.tokenize import word_tokenize
-from nltk.stem.snowball import SnowballStemmer
 import re
+import sys
+from collections import defaultdict, Counter
+from typing import List, Dict, Tuple, Any
 
-# -- CONFIG
+# Intenta importar nltk, si falla avisa al usuario
+try:
+    from nltk.stem.snowball import SnowballStemmer
+except ImportError:
+    print("Error: Necesitas instalar nltk. Ejecuta: pip install nltk")
+    sys.exit(1)
+
+# --- CONFIGURACIÓN ---
 OUTPUT_DIR = '../data/indexes/inverted_index_spimi'
 BLOCKS_DIR = os.path.join(OUTPUT_DIR, 'blocks')
 BINARY_TERMS_DIR = os.path.join(OUTPUT_DIR, 'binary_terms')
 VOCAB_MAP_PATH = os.path.join(OUTPUT_DIR, 'vocab_map.json')
-DOC_STATS_PATH = os.path.join(OUTPUT_DIR, 'doc_stats.json')
+DOC_NORMS_PATH = os.path.join(OUTPUT_DIR, 'doc_norms.json')
 IDF_PATH = os.path.join(OUTPUT_DIR, 'idf.json')
-METADATA_PATH = os.path.join(OUTPUT_DIR, 'index_metadata.json')
 
-# funciones basicas de preprocesamiento
-
-stopwords_file = '../data/stopwords/spanish_stopwords.txt'
+# --- 1. PREPROCESAMIENTO ---
 
 class Preprocessor:
     def __init__(self, stopwords_file: str = None):
@@ -35,37 +37,40 @@ class Preprocessor:
                 self.stopwords = set(line.strip().lower() for line in f if line.strip())
     
     def normalize_text(self, text):
-        text = text.lower()
+        if not text: return ""
+        text = str(text).lower()
+        # Normalización Unicode para eliminar tildes (á -> a)
         text = unicodedata.normalize('NFKD', text)
         text = ''.join(ch for ch in text if not unicodedata.combining(ch))
-        # permite letras y números y espacios
+        # Mantener solo letras y números
         text = re.sub(r'[^0-9a-zñ\s]', ' ', text).strip()
         text = re.sub(r'\s+', ' ', text).strip()
         return text
     
     def tokenize_text(self, text: str) -> List[str]:
         text = self.normalize_text(text)
-        tokens = re.findall(r"[a-zñ0-9]+", text)
-        if self.stopwords:
-            tokens = [token for token in tokens if token not in self.stopwords]
-        return [self.stemmer.stem(token) for token in tokens]
-    
-    def compute_bow_with_positions(self, text):
-        tokens = self.tokenize_text(text)
-        result = {}
-        for pos, token in enumerate(tokens):
-            entry = result.setdefault(token, {'freq': 0, 'positions': []})
-            entry['freq'] += 1
-            entry['positions'].append(pos)
-        return result
-    
-# -- utilidades de archivos binarios por termino
+        if not text: return []
+        tokens = text.split() # Split simple es más rápido que re.findall para bloques grandes
+        
+        final_tokens = []
+        for token in tokens:
+            if self.stopwords and token in self.stopwords:
+                continue
+            # Stemming
+            stem = self.stemmer.stem(token)
+            if stem:
+                final_tokens.append(stem)
+        return final_tokens
+
+# --- 2. GESTIÓN DE BINARIOS ---
 
 def term_to_filename(term: str) -> str:
+    # Usamos Hash SHA1 para evitar nombres de archivo inválidos o muy largos
     h = hashlib.sha1(term.encode('utf-8')).hexdigest()
     return f"{h}.pkl" 
 
 def save_term_binary(term: str, postings: List[Dict[str, Any]]):
+    """Guarda la posting list final de un término en un archivo binario individual."""
     os.makedirs(BINARY_TERMS_DIR, exist_ok=True)
     filename = term_to_filename(term)
     path = os.path.join(BINARY_TERMS_DIR, filename)
@@ -74,218 +79,297 @@ def save_term_binary(term: str, postings: List[Dict[str, Any]]):
     return filename
 
 def load_term_binary_by_filename(filename: str) -> Dict[str, Any]:
+    """Carga en RAM solo la posting list solicitada."""
     path = os.path.join(BINARY_TERMS_DIR, filename)
+    if not os.path.exists(path):
+        return None
     with open(path, 'rb') as f:
-        data = pickle.load(f)
-    return data
+        return pickle.load(f)
 
-# Indexador SPIMI
+# --- 3. INDEXADOR (SPIMI) ---
 
 class SPIMIIndex:
-    def __init__(self, datafilename: str, stopwords_file: str = None, max_terms_in_block: int = 20000):
+    def __init__(self, datafilename: str, stopwords_file: str = None, max_terms_in_block: int = 100000):
         self.datafilename = datafilename
         self.preproc = Preprocessor(stopwords_file)
-        self.max_terms_in_block = max_terms_in_block
+        self.max_terms_in_block = max_terms_in_block # Ajustable según RAM disponible
+        
         os.makedirs(BLOCKS_DIR, exist_ok=True)
-        os.makedirs(BINARY_TERMS_DIR, exist_ok=True)
         os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-        self.doc_stats = {} 
+        self.total_docs = 0
         self.block_count = 0
         self.block_files = []
 
-    def _write_block_jsonl(self, block_terms: Dict[str, List[Dict[str, Any]]], block_id: int) -> str:
-        path = os.path.join(BLOCKS_DIR, f"block_{block_id:06d}.jsonl")
+    def _write_block_disk(self, block_terms: Dict[str, List[Dict[str, Any]]]) -> str:
+        """Escribe un bloque temporal en disco ordenado alfabéticamente."""
+        path = os.path.join(BLOCKS_DIR, f"block_{self.block_count:04d}.jsonl")
+        print(f"   --> Escribiendo Bloque {self.block_count} con {len(block_terms)} términos...")
         with open(path, "w", encoding = "utf-8") as f:
-            for term, postings in block_terms.items():
+            # Ordenamos los términos antes de escribir para facilitar el Merge
+            sorted_terms = sorted(block_terms.keys())
+            for term in sorted_terms:
+                postings = block_terms[term]
                 rec = {'term': term, 'postings': postings}
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         return path
     
     def build_blocks(self):
-        block_terms = {}
-        unique_terms = 0
-        with open(self.datafilename, 'r', encoding='utf-8') as fh:
-            reader = csv.DictReader(fh)
-            for row in reader:
-                doc_id = row.get('id') or row.get('doc_id') or row.get('document_id')
-                text = row.get('text') or row.get('content') or row.get('body')
-                if not doc_id or not text:
-                    continue
-                bow_pos = self.preproc.compute_bow_with_positions(text)
-                self.doc_stats[doc_id] = sum(info['freq'] for info in bow_pos.values())
+        """FASE 1: Inversión en memoria y escritura de bloques."""
+        print(f">>> Iniciando Fase 1: Creación de Bloques SPIMI desde {self.datafilename}...")
+        
+        # Estructura en memoria: term -> list of {doc_id, freq}
+        current_block = defaultdict(list)
+        current_postings_count = 0
+        
+        try:
+            with open(self.datafilename, 'r', encoding='utf-8') as fh:
+                reader = csv.DictReader(fh)
                 
-                for term, info in bow_pos.items():
-                    if term not in block_terms:
-                        unique_terms += 1
-                        block_terms[term] = []
-                    block_terms[term].append({'doc_id': doc_id, 'freq': info['freq'], 'positions': info['positions']})
-                
-                if unique_terms >= self.max_terms_in_block:
-                    block_terms_sorted = dict(sorted(block_terms.items()))
-                    path = self._write_block_jsonl(block_terms_sorted, self.block_count)
+                for row in reader:
+                    # Detección flexible de columnas
+                    doc_id = row.get('id') or row.get('doc_id')
+                    title = row.get('title', '')
+                    text = row.get('text') or row.get('content') or ''
+                    
+                    full_text = f"{title} {text}"
+                    
+                    if not doc_id or not full_text.strip():
+                        continue
+                    
+                    self.total_docs += 1
+                    tokens = self.preproc.tokenize_text(full_text)
+                    
+                    # Contamos frecuencia local en el documento
+                    term_freqs = Counter(tokens)
+                    
+                    for term, freq in term_freqs.items():
+                        current_block[term].append({'doc_id': doc_id, 'freq': freq})
+                        current_postings_count += 1
+                    
+                    # Si superamos el límite de memoria (simulado por conteo de postings)
+                    if current_postings_count >= self.max_terms_in_block:
+                        path = self._write_block_disk(current_block)
+                        self.block_files.append(path)
+                        self.block_count += 1
+                        current_block.clear()
+                        current_postings_count = 0
+
+                # Escribir el último bloque si quedó algo
+                if current_block:
+                    path = self._write_block_disk(current_block)
                     self.block_files.append(path)
                     self.block_count += 1
-                    block_terms = {}
-                    unique_terms = 0
-        if block_terms:
-            block_terms_sorted = dict(sorted(block_terms.items()))
-            path = self._write_block_jsonl(block_terms_sorted, self.block_count)
-            self.block_files.append(path)
-            self.block_count += 1
-            block_terms.clear()
+                    
+        except FileNotFoundError:
+            print(f"Error: No se encontró el archivo {self.datafilename}")
+            sys.exit(1)
 
-    def _open_block_iter(self, block_path: str):
+    def _open_block_stream(self, block_path: str):
+        """Generador que lee un bloque línea por línea (stream) para no cargar todo en RAM."""
         f = open(block_path, 'r', encoding='utf-8')
         def gen():
             for line in f:
-                if not line.strip():
-                    continue
-                rec = json.loads(line)
-                yield rec['term'], rec['postings']
+                if not line.strip(): continue
+                yield json.loads(line)
             f.close()
         return gen()
-    
-    def _merge_blocks_and_write_binary_terms(self):
-        iterators = []
-        for path in self.block_files:
-            it = self._open_block_iter(path)
-            try:
-                term, postings = next(it)
-                iterators.append({'term': term, 'postings': postings, 'iter': it, 'path': path})
-            except StopIteration:
-                continue
+
+    def merge_blocks(self):
+        """FASE 2: Merge (k-way merge), cálculo de TF-IDF y Normas."""
+        print(">>> Iniciando Fase 2: Fusión de Bloques y Cálculo de Pesos...")
+        
+        # Min-Heap para el algoritmo k-way merge
         heap = []
-        for idx, itrec in enumerate(iterators):
-            heapq.heappush(heap, (itrec['term'], idx))
-        heapq.heapify(heap)
-
-        vocab_map = {}
-        doc_freqs = {}
-
-        while heap:
-            current_term, idx0 = heapq.heappop(heap)
-            collected_postings = []
-            itrec = iterators[idx0]
-            collected_postings.extend(itrec['postings'])
-
+        iterators = []
+        
+        # Inicializar iteradores para cada bloque
+        for i, path in enumerate(self.block_files):
+            iterator = self._open_block_stream(path)
             try:
-                term_next, postings_next = next(itrec['iter'])
-                iterators[idx0]['term'] = term_next
-                iterators[idx0]['postings'] = postings_next
-                heapq.heappush(heap, (term_next, idx0))
+                first_rec = next(iterator) # {term: "...", postings: [...]}
+                # Guardamos: (término, index_bloque, registro_actual, iterador)
+                heapq.heappush(heap, (first_rec['term'], i, first_rec, iterator))
             except StopIteration:
-                iterators[idx0]['term'] = None
+                pass # Bloque vacío
+        
+        vocab_map = {} # term -> filename
+        idf_map = {}   # term -> idf
+        doc_norms = defaultdict(float) # doc_id -> sum(weight^2)
+        
+        N = self.total_docs
+        
+        while heap:
+            # Extraer el término lexicográficamente menor de todos los bloques abiertos
+            current_term, block_idx, current_rec, current_iter = heapq.heappop(heap)
             
-            while heap and heap[0][0] == current_term:
-                _, idx_i = heapq.heappop(heap)
-                itrec_i = iterators[idx_i]
-                collected_postings.extend(itrec_i['postings'])
-                try:
-                    tnext, pnext = next(itrec_i['iter'])
-                    iterators[idx_i]['term'] = tnext
-                    iterators[idx_i]['postings'] = pnext
-                    heapq.heappush(heap, (tnext, idx_i))
-                except StopIteration:
-                    iterators[idx_i]['term'] = None
-
-            postings_by_doc = {}
-            for p in collected_postings:
-                doc = p['doc_id']
-                if doc not in postings_by_doc:
-                    postings_by_doc[doc] = {'doc_id': doc, 'freq': p.get('freq', 0), 'positions': list(p.get('positions', []))}
-                else:
-                    postings_by_doc[doc]['freq'] += p.get('freq', 0)
-                    postings_by_doc[doc]['positions'].extend(p.get('positions', []))
-            merged_postings = []
-            for docid, v in postings_by_doc.items():
-                v['positions'] = sorted(v['positions'])
-                merged_postings.append(v)
+            # Recolectar todas las postings para ESTE término de todos los bloques que lo tengan
+            merged_postings = current_rec['postings']
+            
+            # Avanzar el iterador del bloque que acabamos de usar
             try:
-                merged_postings.sort(key=lambda x: x['doc_id'])
-            except TypeError:
-                merged_postings.sort(key=lambda x: str(x['doc_id']))
+                next_rec = next(current_iter)
+                heapq.heappush(heap, (next_rec['term'], block_idx, next_rec, current_iter))
+            except StopIteration:
+                pass # Ese bloque se terminó
 
-            filename = save_term_binary(current_term, merged_postings)
+            # Revisar si el siguiente en el heap es el MISMO término (viene de otro bloque)
+            while heap and heap[0][0] == current_term:
+                _, other_idx, other_rec, other_iter = heapq.heappop(heap)
+                merged_postings.extend(other_rec['postings'])
+                
+                # Avanzar ese iterador también
+                try:
+                    nxt = next(other_iter)
+                    heapq.heappush(heap, (nxt['term'], other_idx, nxt, other_iter))
+                except StopIteration:
+                    pass
+            
+            # --- PROCESAMIENTO DEL TÉRMINO UNIFICADO ---
+            
+            # 1. Consolidar (por si un doc se partió en chunks, aunque raro en csv fila a fila)
+            # En este caso, simplemente agrupamos.
+            # Como leemos doc a doc, un doc_id solo aparece una vez por término normalmente.
+            
+            # 2. Calcular TF-IDF y actualizar Normas
+            df = len(merged_postings)
+            idf = math.log10(N / df) if df > 0 else 0
+            idf_map[current_term] = idf
+            
+            final_postings = []
+            for p in merged_postings:
+                doc_id = p['doc_id']
+                raw_freq = p['freq']
+                
+                # TF Logarítmico: 1 + log10(f)
+                tf = 1 + math.log10(raw_freq) if raw_freq > 0 else 0
+                weight = tf * idf
+                
+                # Acumular cuadrado del peso para la norma del documento
+                doc_norms[doc_id] += (weight ** 2)
+                
+                # Guardamos el peso pre-calculado para búsqueda rápida
+                final_postings.append({'doc_id': doc_id, 'weight': weight})
+            
+            # 3. Guardar a disco (Binary File)
+            # Ordenamos por doc_id para búsquedas más estructuradas si fuera necesario
+            final_postings.sort(key=lambda x: str(x['doc_id']))
+            filename = save_term_binary(current_term, final_postings)
             vocab_map[current_term] = filename
-            doc_freqs[current_term] = len(merged_postings)
+
+        # Finalizar cálculo de normas (Raíz cuadrada)
+        print(">>> Finalizando cálculo de Normas Euclidianas...")
+        final_doc_norms = {d: math.sqrt(val) for d, val in doc_norms.items()}
         
-        # calcular idf
-        N = len(self.doc_stats)
-        idf = {}
-        for term, df in doc_freqs.items():
-            idf_val = math.log(1.0 + (N / df)) if df > 0 else 0.0
-            idf[term] = idf_val
+        # Guardar metadatos globales
+        with open(VOCAB_MAP_PATH, "w") as f: json.dump(vocab_map, f)
+        with open(IDF_PATH, "w") as f: json.dump(idf_map, f)
+        with open(DOC_NORMS_PATH, "w") as f: json.dump(final_doc_norms, f)
         
-        with open(VOCAB_MAP_PATH, "w", encoding = "utf-8") as f:
-            json.dump(vocab_map, f, ensure_ascii=False)
-        with open(DOC_STATS_PATH, "w", encoding = "utf-8") as f:
-            json.dump(self.doc_stats, f, ensure_ascii=False)
-        with open(IDF_PATH, "w", encoding = "utf-8") as f:
-            json.dump(idf, f, ensure_ascii=False)
-        meta = {
-            'N': N,
-            'num_terms': sum(doc_freqs.values()),
-            'block_files': self.block_files,
-            'binary_terms_dir': BINARY_TERMS_DIR
-        }
-        with open(METADATA_PATH, "w", encoding = "utf-8") as f:
-            json.dump(meta, f, ensure_ascii=False)
-        return vocab_map, idf
-    
-    # -- consultas
+        print("Indexación completada exitosamente.")
 
-    def load_vocab_map(self) -> Dict[str, str]:
-        with open(VOCAB_MAP_PATH, "r", encoding = "utf-8") as f:
-            vocab_map = json.load(f)
-        return vocab_map
-
-    def get_postings(self, term: str) -> List[Dict[str, Any]]:
-        term_stem = self.preproc.stemmer.stem(term.lower())
-        vocab = self.load_vocab_map()
-        filename = vocab.get(term_stem)
-        if not filename:
-            return []
-        rec = load_term_binary_by_filename(filename)
-        return rec['postings']
-    
-    def compute_tfidf_for_doc(self, doc_id: str) -> Dict[str, float]:
-        with open(IDF_PATH, "r", encoding = "utf-8") as f:
-            idf = json.load(f)
-        volab = self.load_vocab_map()
-        tfidf = {}
-        doc_len = self.doc_stats.get(doc_id)
-        if not doc_len:
-            return {}
-        for term, filename in volab.items():
-            rec = load_term_binary_by_filename(filename)
-            for p in rec['postings']:
-                if p['doc_id'] == doc_id:
-                    tf = p['freq'] / doc_len
-                    tfidf[term] = tf * idf.get(term, 0.0)
-                    break
-        return tfidf
-    
-    # -- Orquestador
-
-    def build_index(self):
+    def run(self):
         self.build_blocks()
-        vocab_map, idf = self._merge_blocks_and_write_binary_terms()
-        return vocab_map, idf
-    
+        self.merge_blocks()
+
+# --- 4. BUSCADOR (Consulta Vectorial) ---
+
+class Searcher:
+    def __init__(self):
+        if not os.path.exists(VOCAB_MAP_PATH):
+            raise Exception("El índice no existe. Ejecuta con --build primero.")
+            
+        print("Cargando metadatos del índice...")
+        with open(VOCAB_MAP_PATH, 'r') as f: self.vocab_map = json.load(f)
+        with open(IDF_PATH, 'r') as f: self.idf_map = json.load(f)
+        with open(DOC_NORMS_PATH, 'r') as f: self.doc_norms = json.load(f)
+        self.preproc = Preprocessor()
+        
+    def search(self, query: str, k: int = 10):
+        # 1. Vectorizar Query
+        tokens = self.preproc.tokenize_text(query)
+        q_term_counts = Counter(tokens)
+        
+        q_weights = {}
+        q_norm_sq = 0.0
+        
+        for term, freq in q_term_counts.items():
+            if term in self.idf_map:
+                tf = 1 + math.log10(freq)
+                idf = self.idf_map[term]
+                w = tf * idf
+                q_weights[term] = w
+                q_norm_sq += w**2
+        
+        q_norm = math.sqrt(q_norm_sq)
+        if q_norm == 0:
+            return []
+            
+        # 2. Similitud Coseno (Acumuladores)
+        scores = defaultdict(float)
+        
+        # Solo leemos los archivos de los términos que están en la query
+        for term, q_w in q_weights.items():
+            filename = self.vocab_map.get(term)
+            if filename:
+                data = load_term_binary_by_filename(filename)
+                if data:
+                    for posting in data['postings']:
+                        doc_id = posting['doc_id']
+                        d_w = posting['weight']
+                        scores[doc_id] += (q_w * d_w) # Producto punto
+        
+        # 3. Normalización y Ranking
+        results = []
+        for doc_id, dot_product in scores.items():
+            d_norm = self.doc_norms.get(doc_id, 0)
+            if d_norm > 0:
+                cosine = dot_product / (q_norm * d_norm)
+                results.append((doc_id, cosine))
+        
+        # Ordenar descendente por score
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:k]
+
+# --- MAIN ---
+
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="SPIMI (k-way merge) indexer")
+    parser = argparse.ArgumentParser(description="Motor de Búsqueda SPIMI")
     parser.add_argument("--data", type=str, default="../data/news_text_dataset.csv", help="CSV input")
     parser.add_argument("--stopwords", type=str, default="../data/stopwords/spanish_stopwords.txt", help="archivo stopwords")
     parser.add_argument("--max_terms_in_block", type=int, default=20000, help="términos únicos por bloque (aprox)")
+    parser.add_argument("--build", action="store_true", help="Construir el índice")
+    parser.add_argument("--query", type=str, help="Ejecutar una consulta")
+    parser.add_argument("--topk", type=int, default=5, help="Resultados a mostrar")
+    
     args = parser.parse_args()
 
-    indexer = SPIMIIndex(args.data, stopwords_file=args.stopwords, max_terms_in_block=args.max_terms_in_block)
-    vocab_map, idf = indexer.build_index()
-    print("Index build complete.")
-    print(f"Terms: {len(vocab_map)}, Documents: {len(indexer.doc_stats)}")
+    # Si no hay argumentos, mostrar ayuda o ejecución por defecto
+    if not args.build and not args.query:
+        print("Modo interactivo.")
+        print("1. Para construir índice: python script.py --build --data news_text_dataset.csv")
+        print("2. Para buscar: python script.py --query 'tu consulta'")
     
-    print(f"Metadata saved to {METADATA_PATH}")
+    if args.build:
+        print(f"Construyendo índice desde: {args.data}")
+        idx = SPIMIIndex(args.data, args.stopwords)
+        idx.run()
+        
+    if args.query:
+        s = Searcher()
+        res = s.search(args.query, k=args.topk)
+        print(f"\nResultados para: '{args.query}'")
+        print("-" * 50)
+        for i, (did, score) in enumerate(res, 1):
+            print(f"{i}. Score: {score:.4f} | DocID: {did}")
 
+## 
+## codigo para construir
+## python3 inverted_index_spimi.py --build  --data ../data/news_text_dataset.csv --stopwords ../data/stopwords/spanish_stopwords.txt --max_terms_in_block 20000
 
+## codigo para buscar
+## python3 inverted_index_spimi.py --query "tu consulta aquí"
+
+## codigo para buscar & topk
+## python3 inverted_index_spimi.py --query "tu consulta aquí" --topk 5
