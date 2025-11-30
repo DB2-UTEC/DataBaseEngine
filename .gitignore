@@ -4,6 +4,8 @@
 *.idx
 *.header
 *.pkl
+*.idx.meta
+data/indexes/
 
 node_modules/
 __pyccache__

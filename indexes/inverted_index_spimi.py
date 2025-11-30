@@ -285,7 +285,7 @@ class Searcher:
         with open(DOC_NORMS_PATH, 'r') as f: self.doc_norms = json.load(f)
         self.preproc = Preprocessor()
         
-    def search(self, query: str, k: int = 10):
+    def search(self, query: str, k: int = 10, order: str = 'norm') -> List[Tuple[str, float]]:
         # 1. Vectorizar Query
         tokens = self.preproc.tokenize_text(query)
         q_term_counts = Counter(tokens)
@@ -327,9 +327,19 @@ class Searcher:
                 cosine = dot_product / (q_norm * d_norm)
                 results.append((doc_id, cosine))
         
-        # Ordenar descendente por score
-        results.sort(key=lambda x: x[1], reverse=True)
+        # Ordenar por score
+        if order == 'desc':
+            results.sort(key=lambda x: x[1], reverse=True)
+        elif order == 'asc':
+            results.sort(key=lambda x: x[1])
+        elif order == 'norm':
+            # dejarlo como está, ya está ordenado por score
+            pass
+        else: 
+            return ValueError("order debe ser 'asc' o 'desc'")
         return results[:k]
+    
+
 
 # --- MAIN ---
 
@@ -342,6 +352,7 @@ if __name__ == "__main__":
     parser.add_argument("--build", action="store_true", help="Construir el índice")
     parser.add_argument("--query", type=str, help="Ejecutar una consulta")
     parser.add_argument("--topk", type=int, default=5, help="Resultados a mostrar")
+    parser.add_argument("--order", type=str, choices=['asc', 'desc', 'norm'], default='norm', help="Orden de resultados")
     
     args = parser.parse_args()
 
@@ -358,7 +369,7 @@ if __name__ == "__main__":
         
     if args.query:
         s = Searcher()
-        res = s.search(args.query, k=args.topk)
+        res = s.search(args.query, k=args.topk, order=args.order if 'order' in args else 'norm')
         print(f"\nResultados para: '{args.query}'")
         print("-" * 50)
         for i, (did, score) in enumerate(res, 1):
