@@ -1,7 +1,9 @@
 # DataBase Engine
 
 Este es un motor de base de datos desarrollado para el curso de Base de Datos 2, que implementa índices B+ con persistencia en memoria secundaria.
-video: https://drive.google.com/file/d/19dgbM95GYSWHEaix2SkzLYBn6xnmU9xD/view?usp=sharing
+
+**Consulta el video mostrando el funcionamiento del programa (https://drive.google.com/file/d/19dgbM95GYSWHEaix2SkzLYBn6xnmU9xD/view?usp=sharing)**
+**Consulta la documentación completa en nuestra [Wiki](https://github.com/DB2-UTEC/DataBaseEngine/wiki)**
 
 ## Características
 
