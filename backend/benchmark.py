@@ -221,7 +221,7 @@ class DatabaseBenchmark:
         
         plt.tight_layout()
         plt.savefig(f'{RESULTS_DIR}/point_queries_{timestamp}.png', dpi=300, bbox_inches='tight')
-        print(f"✅ Gráfica guardada: point_queries_{timestamp}.png")
+        print(f"Gráfica guardada: point_queries_{timestamp}.png")
         plt.close()
     
     def _plot_range_queries(self, df, timestamp):
@@ -246,7 +246,7 @@ class DatabaseBenchmark:
         
         plt.tight_layout()
         plt.savefig(f'{RESULTS_DIR}/range_queries_{timestamp}.png', dpi=300, bbox_inches='tight')
-        print(f"✅ Gráfica guardada: range_queries_{timestamp}.png")
+        print(f" Gráfica guardada: range_queries_{timestamp}.png")
         plt.close()
     
     def _plot_insert_performance(self, df, timestamp):

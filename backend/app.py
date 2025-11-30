@@ -12,7 +12,7 @@ from sql_parser import SQLParser, ExecutionPlan
 from sql_executor import SQLExecutor
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-DATA_DIR = BASE_DIR / 'data'
+DATA_DIR = BASE_DIR / 'data/imagenes/'
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Extensiones de imagen permitidas (solo png, jpg, jpeg)

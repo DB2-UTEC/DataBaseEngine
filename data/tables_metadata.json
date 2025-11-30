@@ -35,7 +35,7 @@
     ],
     "index_type": "BTREE",
     "key_field": "codigo",
-    "source_file": "C:\\Users\\frans\\OneDrive\\Escritorio\\dev\\BD2-Restructuracion\\data\\productos.csv"
+    "source_file": "/app/data/productos.csv"
   },
   "Productos5": {
     "table_name": "Productos5",
