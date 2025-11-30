@@ -3,6 +3,7 @@ from flask_cors import CORS
 import os
 from pathlib import Path
 import traceback
+from werkzeug.utils import secure_filename
 
 # Import parser
 import sys
@@ -11,11 +12,30 @@ from sql_parser import SQLParser, ExecutionPlan
 from sql_executor import SQLExecutor
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-DATA_DIR = BASE_DIR / 'data'
+DATA_DIR = BASE_DIR / 'data/imagenes/'
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# Extensiones de imagen permitidas (solo png, jpg, jpeg)
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 
 app = Flask(__name__)
 CORS(app)
+
+def allowed_file(filename):
+    """Verifica si el archivo tiene una extensión de imagen permitida."""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def get_images():
+    """Obtiene la lista de imágenes en el directorio data."""
+    images = []
+    for file in DATA_DIR.iterdir():
+        if file.is_file() and allowed_file(file.name):
+            images.append({
+                'name': file.name,
+                'file': str(file),
+                'type': 'image'
+            })
+    return images
 
 parser = SQLParser()
 executor = SQLExecutor(base_dir=str(BASE_DIR))
@@ -23,21 +43,27 @@ executor = SQLExecutor(base_dir=str(BASE_DIR))
 
 @app.route('/api/tables', methods=['GET'])
 def api_tables():
-    """Lista todas las tablas creadas usando el executor."""
+    """Lista todas las tablas creadas usando el executor y las imágenes."""
     try:
         result = executor.list_tables()
+        normalized = []
+        
+        # Agregar tablas
         if result.get('success'):
             tables = result.get('tables', [])
-            # Normalizar formato para el frontend
-            normalized = []
             for table in tables:
                 normalized.append({
                     'name': table,
                     'file': str(DATA_DIR / f"{table}.csv"),
-                    'columns': executor.get_table_info(table).get('fields', [])
+                    'columns': executor.get_table_info(table).get('fields', []),
+                    'type': 'table'
                 })
-            return jsonify(normalized)
-        return jsonify([])
+        
+        # Agregar imágenes
+        images = get_images()
+        normalized.extend(images)
+        
+        return jsonify(normalized)
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -45,14 +71,136 @@ def api_tables():
 
 @app.route('/api/tables/search')
 def api_tables_search():
-    """Busca tablas por nombre."""
+    """Busca tablas e imágenes por nombre."""
     q = request.args.get('q', '').lower()
     try:
         result = executor.list_tables()
         tables = result.get('tables', [])
+        images = get_images()
+        
+        results = []
+        
+        # Buscar tablas
         if q:
-            tables = [t for t in tables if q in t.lower()]
-        return jsonify([{'name': t, 'file': str(DATA_DIR / f"{t}.csv")} for t in tables])
+            filtered_tables = [t for t in tables if q in t.lower()]
+            for t in filtered_tables:
+                results.append({
+                    'name': t,
+                    'file': str(DATA_DIR / f"{t}.csv"),
+                    'type': 'table'
+                })
+        else:
+            for t in tables:
+                results.append({
+                    'name': t,
+                    'file': str(DATA_DIR / f"{t}.csv"),
+                    'type': 'table'
+                })
+        
+        # Buscar imágenes
+        if q:
+            filtered_images = [img for img in images if q in img['name'].lower()]
+            results.extend(filtered_images)
+        else:
+            results.extend(images)
+        
+        return jsonify(results)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/upload-image', methods=['POST'])
+def api_upload_image():
+    """Sube una imagen al directorio data."""
+    try:
+        if 'image' not in request.files:
+            return jsonify({'error': 'No se proporcionó ningún archivo'}), 400
+        
+        file = request.files['image']
+        
+        if file.filename == '':
+            return jsonify({'error': 'No se seleccionó ningún archivo'}), 400
+        
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Tipo de archivo no permitido. Solo se permiten PNG, JPG o JPEG.'}), 400
+        
+        # Asegurar nombre de archivo seguro
+        filename = secure_filename(file.filename)
+        filepath = DATA_DIR / filename
+        
+        # Si el archivo ya existe, agregar un número al final
+        counter = 1
+        original_filename = filename
+        while filepath.exists():
+            name, ext = original_filename.rsplit('.', 1)
+            filename = f"{name}_{counter}.{ext}"
+            filepath = DATA_DIR / filename
+            counter += 1
+        
+        # Guardar el archivo
+        file.save(str(filepath))
+        
+        return jsonify({
+            'success': True,
+            'message': 'Imagen subida exitosamente',
+            'filename': filename,
+            'filepath': str(filepath)
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/upload-folder', methods=['POST'])
+def api_upload_folder():
+    """Sube múltiples imágenes de una carpeta al directorio data."""
+    try:
+        if 'images' not in request.files:
+            return jsonify({'error': 'No se proporcionaron archivos'}), 400
+        
+        files = request.files.getlist('images')
+        
+        if not files or len(files) == 0:
+            return jsonify({'error': 'No se seleccionaron archivos'}), 400
+        
+        uploaded_files = []
+        skipped_files = []
+        
+        for file in files:
+            if file.filename == '':
+                continue
+            
+            # Validar formato
+            if not allowed_file(file.filename):
+                skipped_files.append(file.filename)
+                continue
+            
+            # Asegurar nombre de archivo seguro
+            filename = secure_filename(file.filename)
+            filepath = DATA_DIR / filename
+            
+            # Si el archivo ya existe, agregar un número al final
+            counter = 1
+            original_filename = filename
+            while filepath.exists():
+                name, ext = original_filename.rsplit('.', 1)
+                filename = f"{name}_{counter}.{ext}"
+                filepath = DATA_DIR / filename
+                counter += 1
+            
+            # Guardar el archivo
+            file.save(str(filepath))
+            uploaded_files.append(filename)
+        
+        return jsonify({
+            'success': True,
+            'message': f'{len(uploaded_files)} imagen(es) subida(s) exitosamente',
+            'uploaded': uploaded_files,
+            'skipped': skipped_files,
+            'total_uploaded': len(uploaded_files),
+            'total_skipped': len(skipped_files)
+        })
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500

@@ -44,7 +44,7 @@ export default function ResultsTable({ results, stats, currentPage, totalRows, o
     ...r 
   }));
 
-  // ✅ Crear key único basado en los datos
+  // Crear key único basado en los datos
   const tableKey = `${cols.join('-')}-${rows.length}-${Date.now()}`;
 
   return (

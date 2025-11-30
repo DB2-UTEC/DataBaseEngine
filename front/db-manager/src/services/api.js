@@ -41,4 +41,30 @@ export const apiService = {
     if (!response.ok) throw new Error('Error al formatear consulta');
     return response.json();
   },
+
+  // Subir imagen
+  async uploadImage(file) {
+    const formData = new FormData();
+    formData.append('image', file);
+    const response = await fetch(`${API_BASE_URL}/upload-image`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) throw new Error('Error al subir imagen');
+    return response.json();
+  },
+
+  // Subir carpeta con múltiples imágenes
+  async uploadFolder(files) {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append('images', file);
+    });
+    const response = await fetch(`${API_BASE_URL}/upload-folder`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) throw new Error('Error al subir carpeta');
+    return response.json();
+  },
 };

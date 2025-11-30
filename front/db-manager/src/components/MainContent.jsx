@@ -1,7 +1,10 @@
 import React from 'react';
 import SqlEditorComponent from './SqlEditor';
 import ResultsTable from './ResultsTable';
-import { Button, Box, Tabs, Tab, Typography, CircularProgress } from '@mui/material';
+import { Button, Box, Tabs, Tab, Typography, CircularProgress, Menu, MenuItem } from '@mui/material';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import ImageIcon from '@mui/icons-material/Image';
+import FolderIcon from '@mui/icons-material/Folder';
 
 export default function MainContent({ 
   query, 
@@ -13,9 +16,54 @@ export default function MainContent({
   totalRows,
   onExecute, 
   onFormat, 
-  onClear 
+  onClear,
+  onUploadImage,
+  onUploadFolder
 }) {
   const [tabValue, setTabValue] = React.useState(0);
+  const [anchorEl, setAnchorEl] = React.useState(null);
+  const open = Boolean(anchorEl);
+
+  const handleClick = (event) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleUploadImageClick = () => {
+    handleClose();
+    // Trigger file input for single image
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png,image/jpeg,image/jpg';
+    input.onchange = (e) => {
+      const file = e.target.files?.[0];
+      if (file && onUploadImage) {
+        onUploadImage({ target: { files: [file] } });
+      }
+    };
+    input.click();
+  };
+
+  const handleUploadFolderClick = () => {
+    handleClose();
+    // Trigger directory input for folder
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.webkitdirectory = true;
+    input.directory = true;
+    input.multiple = true;
+    input.accept = 'image/png,image/jpeg,image/jpg';
+    input.onchange = (e) => {
+      const files = Array.from(e.target.files || []);
+      if (files.length > 0 && onUploadFolder) {
+        onUploadFolder({ target: { files } });
+      }
+    };
+    input.click();
+  };
 
   return (
     <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -56,6 +104,28 @@ export default function MainContent({
             >
               Limpiar
             </Button>
+            <Button 
+              variant="outlined" 
+              startIcon={<CloudUploadIcon />}
+              disabled={loading}
+              onClick={handleClick}
+            >
+              Subir Imagen
+            </Button>
+            <Menu
+              anchorEl={anchorEl}
+              open={open}
+              onClose={handleClose}
+            >
+              <MenuItem onClick={handleUploadImageClick}>
+                <ImageIcon sx={{ mr: 1 }} />
+                Subir Imagen
+              </MenuItem>
+              <MenuItem onClick={handleUploadFolderClick}>
+                <FolderIcon sx={{ mr: 1 }} />
+                Subir Carpeta
+              </MenuItem>
+            </Menu>
           </Box>
           
           <ResultsTable 

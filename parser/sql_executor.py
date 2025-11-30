@@ -179,7 +179,8 @@ class SQLExecutor:
         print(f"DEBUG Archivos en directorio actual: {os.listdir('.')}")
         if os.path.exists('data'):
             print(f"DEBUG Archivos en data/: {os.listdir('data')}")
-        
+        if os.path.exists('data/imagenes/'):
+            print(f"DEBUG Archivos en data/imagenes/: {os.listdir('data')}")
         if not os.path.exists(file_path):
             return {'success': False, 'error': f'Archivo no encontrado: {file_path}. Ruta absoluta: {os.path.abspath(file_path)}'}
         
