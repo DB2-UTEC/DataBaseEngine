@@ -3,7 +3,7 @@
 *.dat
 *.idx
 *.header
-
+*.pkl
 
 node_modules/
 __pyccache__
