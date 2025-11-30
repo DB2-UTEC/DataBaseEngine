@@ -14,9 +14,11 @@ from typing import List, Dict, Tuple, Any
 # Intenta importar nltk, si falla avisa al usuario
 try:
     from nltk.stem.snowball import SnowballStemmer
+    _NLTK_AVAILABLE = True
 except ImportError:
-    print("Error: Necesitas instalar nltk. Ejecuta: pip install nltk")
-    sys.exit(1)
+    print("Error: Necesitas instalar nltk. Ejecuta: pip install nltk para mejor calidad")
+    SnowballStemmer = None
+    _NLTK_AVAILABLE = False
 
 # --- CONFIGURACIÓN ---
 OUTPUT_DIR = '../data/indexes/inverted_index_spimi'
@@ -30,7 +32,7 @@ IDF_PATH = os.path.join(OUTPUT_DIR, 'idf.json')
 
 class Preprocessor:
     def __init__(self, stopwords_file: str = None):
-        self.stemmer = SnowballStemmer("spanish")
+        self.stemmer = SnowballStemmer("spanish") if _NLTK_AVAILABLE else None
         self.stopwords = set()
         if stopwords_file and os.path.exists(stopwords_file):
             with open(stopwords_file, 'r', encoding='utf-8') as f:
@@ -57,7 +59,10 @@ class Preprocessor:
             if self.stopwords and token in self.stopwords:
                 continue
             # Stemming
-            stem = self.stemmer.stem(token)
+            if self.stemmer:
+                stem = self.stemmer.stem(token)
+            else:
+                stem = token
             if stem:
                 final_tokens.append(stem)
         return final_tokens
@@ -209,7 +214,7 @@ class SPIMIIndex:
             current_term, block_idx, current_rec, current_iter = heapq.heappop(heap)
             
             # Recolectar todas las postings para ESTE término de todos los bloques que lo tengan
-            merged_postings = current_rec['postings']
+            merged_postings =list(current_rec['postings'])
             
             # Avanzar el iterador del bloque que acabamos de usar
             try:
@@ -232,22 +237,26 @@ class SPIMIIndex:
             
             # --- PROCESAMIENTO DEL TÉRMINO UNIFICADO ---
             
-            # 1. Consolidar (por si un doc se partió en chunks, aunque raro en csv fila a fila)
-            # En este caso, simplemente agrupamos.
+            # 1. Consolidar por doc_id (sumar frecuencias)
+            freq_map = defaultdict(int)
+            for p in merged_postings:
+                doc_id = p.get('doc_id')
+                raw_freq = p['freq']
+
+                freq_map[doc_id] += raw_freq
+
             # Como leemos doc a doc, un doc_id solo aparece una vez por término normalmente.
             
             # 2. Calcular TF-IDF y actualizar Normas
-            df = len(merged_postings)
-            idf = math.log10(N / df) if df > 0 else 0
+            df = len(freq_map)
+            idf = math.log10(N / df) if df > 0 and N > 0 else 0
             idf_map[current_term] = idf
             
             final_postings = []
-            for p in merged_postings:
-                doc_id = p['doc_id']
-                raw_freq = p['freq']
+            for doc_id, total_freq in freq_map.items():
                 
                 # TF Logarítmico: 1 + log10(f)
-                tf = 1 + math.log10(raw_freq) if raw_freq > 0 else 0
+                tf = 1 + math.log10(total_freq) if total_freq > 0 else 0
                 weight = tf * idf
                 
                 # Acumular cuadrado del peso para la norma del documento
