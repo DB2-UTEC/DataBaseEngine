@@ -574,14 +574,22 @@ class SQLExecutor:
         
         try:
             # Ejecutar WHERE usando índices
+            limit_value = plan.data.get('limit')
             if where_clause:
                 print(f"DEBUG Ejecutando WHERE: {where_clause}")
-                results = self._execute_where_clause(structure, where_clause, index_type)
+                results = self._execute_where_clause(structure, where_clause, index_type, limit_value)
             else:
                 print(f"DEBUG Ejecutando SELECT * sobre {type(structure).__name__}")
                 results = self._select_all(structure, index_type)
             
             print(f"DEBUG Resultados obtenidos: {len(results) if results else 0}")
+            
+            # Aplicar LIMIT si está presente
+            limit_value = plan.data.get('limit')
+            if limit_value and isinstance(limit_value, int) and limit_value > 0:
+                print(f"DEBUG Aplicando LIMIT {limit_value}")
+                results = results[:limit_value]
+                print(f"DEBUG Resultados después de LIMIT: {len(results)}")
             
             # Aplicar proyección (select_list)
             if select_list != ['*'] and results:
@@ -601,74 +609,6 @@ class SQLExecutor:
             traceback.print_exc()
             return {'success': False, 'error': str(e)}
 
-    def _execute_where_clause(self, structure, where_clause, index_type):
-        """Ejecuta cláusula WHERE USANDO los índices para optimizar."""
-        condition_type = where_clause['type']
-        field = where_clause['field']
-        
-        # BÚSQUEDA POR IGUALDAD - USA EL ÍNDICE
-        if condition_type == 'comparison':
-            value = where_clause['value']
-            operator = where_clause['operator']
-            
-            if operator == '=':
-                # **AQUÍ USA EL ÍNDICE** para búsqueda rápida
-                if index_type in ['BTREE', 'ISAM', 'EXTENDIBLEHASH']:
-                    result = structure.search(value)
-                    return [result] if result else []
-                elif index_type in ['SEQ', 'SEQUENTIAL']:
-                    record = structure.search(value)  # Devuelve valores directamente
-                    return [record] if record else []
-                elif index_type == 'RTREE':
-                    pos = structure.search(value)
-                    if pos is not None:
-                        # Leer registro desde FileManager
-                        from core.file_manager import FileManager
-                        # ... obtener record
-                        return [record.values] if record else []
-            else:
-                # Para otros operadores, scan completo (optimizable)
-                return self._scan_with_condition(structure, field, operator, value, index_type)
-        
-        # BÚSQUEDA POR RANGO - USA range_search del índice
-        elif condition_type == 'between':
-            start, end = where_clause['start'], where_clause['end']
-            
-            if index_type == 'BTREE':
-                # **USA range_search del B+ Tree**
-                positions = structure.range_search(start, end)
-                return [pos for key, pos in positions]
-            elif index_type == 'ISAM':
-                # **USA range_search de ISAM**
-                positions = structure.range_search(start, end)
-                return [pos for key, pos in positions]
-            elif index_type in ['SEQ', 'SEQUENTIAL']:
-                # **USA rangeSearch del Sequential File**
-                records = structure.rangeSearch(start, end)
-                return [r.values for r in records] if records else []
-            else:
-                return [f'BETWEEN no soportado para índice {index_type}']
-        
-        # BÚSQUEDA ESPACIAL - USA R-tree
-        elif condition_type == 'spatial':
-            point = where_clause['point']  # (x, y)
-            radius_or_k = where_clause.get('radius') or where_clause.get('k', 10)
-            
-            if index_type == 'RTREE':
-                # **USA spatial_search del R-tree**
-                ids = structure.spatial_search(point, radius_or_k)
-                # Obtener registros completos
-                results = []
-                for rec_id in ids:
-                    pos = structure.id_to_pos.get(rec_id)
-                    if pos is not None:
-                        # Leer registro desde FileManager
-                        # ... return results
-                        return results
-            else:
-                return ['Búsqueda espacial solo soportada con R-tree']
-        
-        return []
 
     def _select_all(self, structure, index_type):
         """Selecciona todos los registros USANDO get_all o similar."""
@@ -854,8 +794,16 @@ class SQLExecutor:
         return result
     
 
-    def _execute_where_clause(self, structure, where_clause, index_type):
-        """Ejecuta cláusula WHERE USANDO los índices para optimizar."""
+    def _execute_where_clause(self, structure, where_clause, index_type, limit_value=None):
+        """
+        Ejecuta cláusula WHERE USANDO los índices para optimizar.
+        
+        Args:
+            structure: Estructura de datos (índice)
+            where_clause: Diccionario con la condición WHERE
+            index_type: Tipo de índice
+            limit_value: Valor de LIMIT si está presente
+        """
         condition_type = where_clause['type']
         field = where_clause['field']
         
@@ -1021,6 +969,20 @@ class SQLExecutor:
             else:
                 return []
         
+        # BÚSQUEDA MULTIMEDIA - Búsqueda por similitud de imágenes
+        elif condition_type == 'multimedia':
+            print(f"DEBUG _execute_where_clause: Detectada búsqueda multimedia")
+            query_path = where_clause.get('query_path')
+            if not query_path:
+                print(f"ERROR: No se encontró query_path en la condición multimedia")
+                return []
+            
+            print(f"DEBUG _execute_where_clause: Ejecutando búsqueda multimedia en tabla {table_name}")
+            # Usar limit_value pasado como parámetro, o 10 por defecto
+            search_limit = limit_value if limit_value and isinstance(limit_value, int) else 10
+            print(f"DEBUG _execute_where_clause: Usando limit={search_limit} para búsqueda multimedia")
+            return self._execute_multimedia_search(table_name, query_path, search_limit)
+        
         return []
     
     def _scan_with_field_condition(self, structure, field, operator, value, index_type):
@@ -1068,3 +1030,188 @@ class SQLExecutor:
         
         print(f"DEBUG Scan de rango completado: {len(results)} registros encontrados")
         return results
+    
+    def _execute_multimedia_search(self, table_name: str, query_image_path: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Ejecuta búsqueda por similitud de imágenes usando los módulos multimedia.
+        
+        Esta función:
+        1. Carga los modelos multimedia (codebook, histogramas, índice invertido)
+        2. Realiza la búsqueda por similitud usando SIFT + BOVW
+        3. Retorna los resultados en formato de diccionarios compatibles con el sistema
+        
+        Args:
+            table_name: Nombre de la tabla Multimedia
+            query_image_path: Ruta a la imagen query (puede ser absoluta o relativa)
+            limit: Número máximo de resultados a retornar
+            
+        Returns:
+            Lista de diccionarios con los resultados de la búsqueda
+        """
+        print(f"\n{'='*60}")
+        print(f"DEBUG _execute_multimedia_search: Iniciando búsqueda multimedia")
+        print(f"DEBUG Tabla: {table_name}")
+        print(f"DEBUG Query image path: {query_image_path}")
+        print(f"DEBUG Limit: {limit}")
+        print(f"{'='*60}\n")
+        
+        try:
+            # Importar módulos multimedia
+            import sys
+            import os
+            multimedia_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'multimedia')
+            if multimedia_path not in sys.path:
+                sys.path.insert(0, multimedia_path)
+            
+            from multimedia.sift_features import get_image_paths
+            from multimedia.bovw import load_codebook, load_histograms
+            from multimedia.sift_inverted_index import SIFTInvertedIndex
+            from multimedia.sequential_search import SequentialSIFTSearch
+            
+            # Rutas a los archivos multimedia
+            # Las imágenes ahora están en data/imagenes/
+            IMAGE_DIR = os.path.join(self.base_dir, 'data', 'imagenes')
+            CODEBOOK_PATH = os.path.join(self.base_dir, 'multimedia', 'database', 'codebook.pkl')
+            HISTOGRAMS_PATH = os.path.join(self.base_dir, 'multimedia', 'database', 'histograms.npz')
+            INVERTED_INDEX_PATH = os.path.join(self.base_dir, 'multimedia', 'database', 'inverted_index.pkl')
+            
+            print(f"DEBUG IMAGE_DIR: {IMAGE_DIR}")
+            print(f"DEBUG CODEBOOK_PATH: {CODEBOOK_PATH}")
+            print(f"DEBUG HISTOGRAMS_PATH: {HISTOGRAMS_PATH}")
+            print(f"DEBUG INVERTED_INDEX_PATH: {INVERTED_INDEX_PATH}")
+            
+            # Verificar que existan los archivos necesarios
+            if not os.path.exists(CODEBOOK_PATH):
+                error_msg = f"Codebook no encontrado en {CODEBOOK_PATH}. Ejecute primero la construcción del índice multimedia."
+                print(f"ERROR: {error_msg}")
+                return [{'error': error_msg}]
+            
+            if not os.path.exists(HISTOGRAMS_PATH):
+                error_msg = f"Histogramas no encontrados en {HISTOGRAMS_PATH}. Ejecute primero la construcción del índice multimedia."
+                print(f"ERROR: {error_msg}")
+                return [{'error': error_msg}]
+            
+            # Verificar que la imagen query exista
+            if not os.path.exists(query_image_path):
+                # Intentar con ruta relativa desde base_dir
+                query_image_path_alt = os.path.join(self.base_dir, query_image_path)
+                if os.path.exists(query_image_path_alt):
+                    query_image_path = query_image_path_alt
+                    print(f"DEBUG Usando ruta alternativa: {query_image_path}")
+                else:
+                    error_msg = f"Imagen query no encontrada: {query_image_path}"
+                    print(f"ERROR: {error_msg}")
+                    return [{'error': error_msg}]
+            
+            print(f"DEBUG Imagen query encontrada: {query_image_path}")
+            
+            # Cargar modelos multimedia
+            print(f"DEBUG Cargando codebook desde {CODEBOOK_PATH}...")
+            kmeans_model, _ = load_codebook(CODEBOOK_PATH)
+            vocab_size = kmeans_model.n_clusters
+            print(f"DEBUG Codebook cargado: vocab_size={vocab_size}")
+            
+            print(f"DEBUG Cargando histogramas desde {HISTOGRAMS_PATH}...")
+            histograms_tfidf, idf_weights = load_histograms(HISTOGRAMS_PATH)
+            print(f"DEBUG Histogramas cargados: shape={histograms_tfidf.shape}")
+            
+            # Obtener rutas de imágenes en la base de datos
+            print(f"DEBUG Obteniendo rutas de imágenes desde {IMAGE_DIR}...")
+            image_paths = get_image_paths(IMAGE_DIR)
+            print(f"DEBUG Encontradas {len(image_paths)} imágenes en la base de datos")
+            
+            if len(image_paths) == 0:
+                error_msg = f"No se encontraron imágenes en {IMAGE_DIR}"
+                print(f"ERROR: {error_msg}")
+                return [{'error': error_msg}]
+            
+            # Verificar que el número de imágenes coincida con el número de histogramas
+            if len(image_paths) != len(histograms_tfidf):
+                print(f"WARN: Número de imágenes ({len(image_paths)}) no coincide con número de histogramas ({len(histograms_tfidf)})")
+                # Usar el mínimo para evitar errores
+                min_len = min(len(image_paths), len(histograms_tfidf))
+                image_paths = image_paths[:min_len]
+                histograms_tfidf = histograms_tfidf[:min_len]
+                print(f"DEBUG Usando {min_len} imágenes/histogramas")
+            
+            # Intentar usar índice invertido si existe, sino usar búsqueda secuencial
+            if os.path.exists(INVERTED_INDEX_PATH):
+                print(f"DEBUG Usando índice invertido desde {INVERTED_INDEX_PATH}...")
+                inverted_index = SIFTInvertedIndex(vocab_size)
+                inverted_index.load(INVERTED_INDEX_PATH)
+                inverted_index.set_idf(idf_weights)
+                
+                # Realizar búsqueda
+                print(f"DEBUG Realizando búsqueda con índice invertido...")
+                search_results = inverted_index.search_by_image_path(query_image_path, kmeans_model, k=limit)
+            else:
+                print(f"DEBUG Índice invertido no encontrado, usando búsqueda secuencial...")
+                searcher = SequentialSIFTSearch(histograms_tfidf, image_paths, kmeans_model, idf_weights)
+                
+                # Realizar búsqueda
+                print(f"DEBUG Realizando búsqueda secuencial...")
+                search_results = searcher.search(query_image_path, k=limit)
+            
+            print(f"DEBUG Búsqueda completada: {len(search_results)} resultados encontrados")
+            
+            # Convertir resultados al formato esperado por el sistema
+            # Los resultados vienen como [(image_path, score), ...]
+            # Necesitamos convertirlos a diccionarios con los campos de la tabla
+            results = []
+            
+            # Obtener información de la tabla para saber qué campos tiene
+            table_info = self.tables.get(table_name, {})
+            fields_info = table_info.get('fields', [])
+            field_names = [f['name'] for f in fields_info]
+            
+            print(f"DEBUG Campos de la tabla: {field_names}")
+            
+            for img_path, score in search_results:
+                # Extraer nombre del archivo de la ruta
+                img_filename = os.path.basename(img_path)
+                
+                # Crear diccionario con los resultados
+                # Asumimos que la tabla tiene campos como 'id', 'title', 'image_path', etc.
+                result_dict = {}
+                
+                # Intentar mapear campos comunes
+                if 'id' in field_names:
+                    # Usar el índice o nombre del archivo como ID
+                    result_dict['id'] = img_filename
+                
+                if 'title' in field_names:
+                    # Usar el nombre del archivo sin extensión como título
+                    title = os.path.splitext(img_filename)[0]
+                    result_dict['title'] = title
+                
+                if 'image_path' in field_names or 'path' in field_names:
+                    result_dict['image_path' if 'image_path' in field_names else 'path'] = img_path
+                
+                if 'score' in field_names or 'similarity' in field_names:
+                    result_dict['score' if 'score' in field_names else 'similarity'] = float(score)
+                
+                # Agregar todos los campos que faltan con valores None o vacíos
+                for field_name in field_names:
+                    if field_name not in result_dict:
+                        result_dict[field_name] = None
+                
+                results.append(result_dict)
+                print(f"DEBUG Resultado: {img_filename} -> score={score:.4f}")
+            
+            print(f"DEBUG Total de resultados formateados: {len(results)}")
+            print(f"{'='*60}\n")
+            
+            return results
+            
+        except ImportError as e:
+            error_msg = f"Error importando módulos multimedia: {e}"
+            print(f"ERROR: {error_msg}")
+            import traceback
+            traceback.print_exc()
+            return [{'error': error_msg}]
+        except Exception as e:
+            error_msg = f"Error ejecutando búsqueda multimedia: {e}"
+            print(f"ERROR: {error_msg}")
+            import traceback
+            traceback.print_exc()
+            return [{'error': error_msg}]

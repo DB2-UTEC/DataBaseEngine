@@ -49,7 +49,8 @@ select_list: "*" -> select_all
 // WHERE clause mejorado
 where_clause: "WHERE"i condition
 
-?condition: comparison 
+?condition: multimedia_condition
+          | comparison 
           | between_condition
           | spatial_condition
           | condition ("AND"i | "OR"i) condition
@@ -57,9 +58,10 @@ where_clause: "WHERE"i condition
 // Usar patrones más simples
 between_condition: field_name "BETWEEN"i value "AND"i value
 spatial_condition: field_name "IN"i "(" value "," value ")"  // point y radius como values genéricos
+multimedia_condition: field_name "<->" string_literal  // Búsqueda por similitud de imágenes
 
 comparison: field_name comparison_operator value
-comparison_operator: "=" | "!=" | "<>" | "<" | ">" | "<=" | ">="
+comparison_operator: "=" | "!=" | "<>" | "<" | ">" | "<=" | ">=" | "<->"
 
 // Optional ORDER BY / LIMIT
 order_clause: "ORDER"i "BY"i field_name ("ASC"i | "DESC"i)?

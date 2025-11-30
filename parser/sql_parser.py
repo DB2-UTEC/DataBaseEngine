@@ -478,10 +478,11 @@ class SQLTransformer(Transformer):
         return [self._unwrap(i) for i in items]
 
     def select_statement(self, items):
-        """SELECT corregido para asignar where_clause."""
+        """SELECT corregido para asignar where_clause y limit."""
         sel = None
         table = None
         where = None
+        limit_value = None
         
         print(f"DEBUG select_statement items: {items}")
         
@@ -495,7 +496,7 @@ class SQLTransformer(Transformer):
                 table = str(it)
             elif isinstance(it, str) and table is None:
                 table = it
-            elif isinstance(it, dict) and it.get('type') in ('comparison', 'between', 'spatial', 'and', 'or'):
+            elif isinstance(it, dict) and it.get('type') in ('comparison', 'between', 'spatial', 'multimedia', 'and', 'or'):
                 where = it
             # BUSCAR where_clause EN TREES
             elif hasattr(it, 'data') and it.data == 'where_clause':
@@ -503,9 +504,17 @@ class SQLTransformer(Transformer):
                 print(f"DEBUG found where_clause tree: {where_content}")
                 if isinstance(where_content, dict):
                     where = where_content
+            # BUSCAR limit_clause
+            elif hasattr(it, 'data') and it.data == 'limit_clause':
+                limit_content = self._unwrap_tree_token(it)
+                print(f"DEBUG found limit_clause tree: {limit_content}")
+                if isinstance(limit_content, (int, float)):
+                    limit_value = int(limit_content)
+                elif isinstance(limit_content, list) and limit_content:
+                    limit_value = int(limit_content[0])
         
-        print(f"DEBUG select_statement final: table={table}, where={where}")
-        return ExecutionPlan('SELECT', table_name=table, select_list=sel or ['*'], where_clause=where)
+        print(f"DEBUG select_statement final: table={table}, where={where}, limit={limit_value}")
+        return ExecutionPlan('SELECT', table_name=table, select_list=sel or ['*'], where_clause=where, limit=limit_value)
 
 
 
@@ -568,6 +577,48 @@ class SQLTransformer(Transformer):
         a = self._unwrap(items[1])
         b = self._unwrap(items[-1])
         return {"type":"between", "field": field, "start": a, "end": b}
+    
+    def multimedia_condition(self, items):
+        """
+        Procesa condición de búsqueda por similitud de imágenes.
+        Formato: field_name <-> 'image_path'
+        
+        Args:
+            items: Lista con [field_name, '<->', string_literal]
+            
+        Returns:
+            Dict con type='multimedia', field=field_name, query_path=image_path
+        """
+        print(f"DEBUG multimedia_condition items: {items}")
+        
+        if len(items) >= 2:
+            field = self._unwrap_tree_token(items[0])
+            # El segundo item debería ser el path de la imagen (string_literal)
+            query_path = self._unwrap_tree_token(items[1])
+            
+            result = {
+                "type": "multimedia",
+                "field": field,
+                "query_path": query_path
+            }
+            print(f"DEBUG multimedia_condition result: {result}")
+            return result
+        
+        print(f"DEBUG multimedia_condition: items insuficientes ({len(items)})")
+        return None
+    
+    def limit_clause(self, items):
+        """Procesa LIMIT clause."""
+        print(f"DEBUG limit_clause items: {items}")
+        
+        if items:
+            limit_value = self._unwrap_tree_token(items[0])
+            if isinstance(limit_value, (int, float)):
+                return int(limit_value)
+            elif isinstance(limit_value, list) and limit_value:
+                return int(limit_value[0])
+        
+        return None
 
     # --- INSERT ---
     def insert_statement(self, items):

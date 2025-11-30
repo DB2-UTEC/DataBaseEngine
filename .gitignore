@@ -1,4 +1,7 @@
 # DatabaseEngine
+entornito/
+multimedia/images/*
+data/imagenes/*
 
 *.dat
 *.idx

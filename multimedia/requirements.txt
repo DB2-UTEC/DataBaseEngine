@@ -1,0 +1,10 @@
+# Dependencias adicionales para SIFT + Bag of Visual Words
+opencv-contrib-python==4.8.1.78
+scikit-learn==1.3.0
+
+# Dependencias existentes (ya deberían estar instaladas)
+# numpy (para operaciones numéricas)
+# matplotlib (para visualización en demo.py)
+# torch, torchvision (para ResNet50 en image_vector.py)
+
+
