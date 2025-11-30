@@ -384,3 +384,6 @@ if __name__ == "__main__":
 
 ## codigo para buscar & topk
 ## python3 inverted_index_spimi.py --query "tu consulta aquí" --topk 5
+
+## codigo para buscar & topk & order
+## python3 inverted_index_spimi.py --query "tu consulta aquí" --topk 5 --order desc
