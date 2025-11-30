@@ -12,6 +12,7 @@ services:
       - ./core:/app/core
       - ./indexes:/app/indexes
       - ./parser:/app/parser
+      - ./data/imagenes:/app/data/imagenes
     environment:
       - FLASK_ENV=development
 
