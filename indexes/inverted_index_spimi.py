@@ -89,7 +89,7 @@ def load_term_binary_by_filename(filename: str) -> Dict[str, Any]:
 # --- 3. INDEXADOR (SPIMI) ---
 
 class SPIMIIndex:
-    def __init__(self, datafilename: str, stopwords_file: str = None, max_terms_in_block: int = 100000):
+    def __init__(self, datafilename: str, stopwords_file: str = None, max_terms_in_block: int = 100000, text_col: str = 'text', title_col: str = 'title', id_col: str = 'id'):
         self.datafilename = datafilename
         self.preproc = Preprocessor(stopwords_file)
         self.max_terms_in_block = max_terms_in_block # Ajustable según RAM disponible
@@ -100,6 +100,9 @@ class SPIMIIndex:
         self.total_docs = 0
         self.block_count = 0
         self.block_files = []
+        self.text_col = text_col
+        self.title_col = title_col
+        self.id_col = id_col
 
     def _write_block_disk(self, block_terms: Dict[str, List[Dict[str, Any]]]) -> str:
         """Escribe un bloque temporal en disco ordenado alfabéticamente."""
@@ -128,15 +131,17 @@ class SPIMIIndex:
                 
                 for row in reader:
                     # Detección flexible de columnas
-                    doc_id = row.get('id') or row.get('doc_id')
-                    title = row.get('title', '')
-                    text = row.get('text') or row.get('content') or ''
+                    doc_id = row.get(self.id_col)
+                    title = row.get(self.title_col, '')
+                    text = row.get(self.text_col, '')
                     
+                    # Concatenar título y texto
                     full_text = f"{title} {text}"
                     
                     if not doc_id or not full_text.strip():
                         continue
                     
+                    # Contamos el documento
                     self.total_docs += 1
                     tokens = self.preproc.tokenize_text(full_text)
                     
@@ -347,6 +352,10 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Motor de Búsqueda SPIMI")
     parser.add_argument("--data", type=str, default="../data/news_text_dataset.csv", help="CSV input")
+    parser.add_argument("--col_text", type=str, default="text", help="Nombre de la columna de texto")
+    parser.add_argument("--col_title", type=str, default="title", help="Nombre de la columna de título")
+    parser.add_argument("--col_id", type=str, default="id", help="Nombre de la columna de ID de documento")
+
     parser.add_argument("--stopwords", type=str, default="../data/stopwords/spanish_stopwords.txt", help="archivo stopwords")
     parser.add_argument("--max_terms_in_block", type=int, default=20000, help="términos únicos por bloque (aprox)")
     parser.add_argument("--build", action="store_true", help="Construir el índice")
@@ -364,7 +373,11 @@ if __name__ == "__main__":
     
     if args.build:
         print(f"Construyendo índice desde: {args.data}")
-        idx = SPIMIIndex(args.data, args.stopwords)
+        idx = SPIMIIndex(args.data, args.stopwords, 
+                         args.max_terms_in_block, 
+                         text_col=args.col_text, 
+                         title_col=args.col_title, 
+                         id_col=args.col_id)
         idx.run()
         
     if args.query:
@@ -377,7 +390,7 @@ if __name__ == "__main__":
 
 ## 
 ## codigo para construir
-## python3 inverted_index_spimi.py --build  --data ../data/news_text_dataset.csv --stopwords ../data/stopwords/spanish_stopwords.txt --max_terms_in_block 20000
+## python3 inverted_index_spimi.py --build  --data ../data/news_text_dataset.csv --stopwords ../data/stopwords/spanish_stopwords.txt --max_terms_in_block 20000 --col_text text --col_title title --col_id id
 
 ## codigo para buscar
 ## python3 inverted_index_spimi.py --query "tu consulta aquí"
