@@ -16,7 +16,7 @@ try:
     from nltk.stem.snowball import SnowballStemmer
     _NLTK_AVAILABLE = True
 except ImportError:
-    print("Error: Necesitas instalar nltk. Ejecuta: pip install nltk para mejor calidad")
+    print("Aviso: nltk no disponible -> continuando SIN stemming. Para mejor calidad instalar: pip install nltk")
     SnowballStemmer = None
     _NLTK_AVAILABLE = False
 
@@ -240,9 +240,9 @@ class SPIMIIndex:
             # 1. Consolidar por doc_id (sumar frecuencias)
             freq_map = defaultdict(int)
             for p in merged_postings:
-                doc_id = p.get('doc_id')
-                raw_freq = p['freq']
-
+                # Normalizamos doc_id y frecuencia
+                doc_id = str(p.get('doc_id'))
+                raw_freq = p.get('freq', 0)
                 freq_map[doc_id] += raw_freq
 
             # Como leemos doc a doc, un doc_id solo aparece una vez por término normalmente.
@@ -273,7 +273,7 @@ class SPIMIIndex:
 
         # Finalizar cálculo de normas (Raíz cuadrada)
         print(">>> Finalizando cálculo de Normas Euclidianas...")
-        final_doc_norms = {d: math.sqrt(val) for d, val in doc_norms.items()}
+        final_doc_norms = {str(d): math.sqrt(val) for d, val in doc_norms.items()}
         
         # Guardar metadatos globales
         with open(VOCAB_MAP_PATH, "w") as f: json.dump(vocab_map, f)
@@ -287,26 +287,24 @@ class SPIMIIndex:
         self.merge_blocks()
 
 # --- 4. BUSCADOR (Consulta Vectorial) ---
-
-class Searcher:
-    def __init__(self):
+    def load_metadata(self):
+        """Carga vocab_map, idf y doc_norms para permitir búsquedas."""
         if not os.path.exists(VOCAB_MAP_PATH):
             raise Exception("El índice no existe. Ejecuta con --build primero.")
-            
-        print("Cargando metadatos del índice...")
         with open(VOCAB_MAP_PATH, 'r') as f: self.vocab_map = json.load(f)
         with open(IDF_PATH, 'r') as f: self.idf_map = json.load(f)
         with open(DOC_NORMS_PATH, 'r') as f: self.doc_norms = json.load(f)
-        self.preproc = Preprocessor()
-        
+        if not hasattr(self, 'preproc') or self.preproc is None:
+            self.preproc = Preprocessor()
+        return True
+    
     def search(self, query: str, k: int = 10, order: str = 'norm') -> List[Tuple[str, float]]:
-        # 1. Vectorizar Query
+        """Consulta vectorial (Cosine Similarity) utilizando los binarios ya generados."""
+        # Vectorizar Query
         tokens = self.preproc.tokenize_text(query)
         q_term_counts = Counter(tokens)
-        
         q_weights = {}
         q_norm_sq = 0.0
-        
         for term, freq in q_term_counts.items():
             if term in self.idf_map:
                 tf = 1 + math.log10(freq)
@@ -314,15 +312,11 @@ class Searcher:
                 w = tf * idf
                 q_weights[term] = w
                 q_norm_sq += w**2
-        
         q_norm = math.sqrt(q_norm_sq)
         if q_norm == 0:
             return []
-            
-        # 2. Similitud Coseno (Acumuladores)
+        # Acumuladores
         scores = defaultdict(float)
-        
-        # Solo leemos los archivos de los términos que están en la query
         for term, q_w in q_weights.items():
             filename = self.vocab_map.get(term)
             if filename:
@@ -332,27 +326,25 @@ class Searcher:
                         doc_id = posting['doc_id']
                         d_w = posting['weight']
                         scores[doc_id] += (q_w * d_w) # Producto punto
-        
-        # 3. Normalización y Ranking
         results = []
         for doc_id, dot_product in scores.items():
             d_norm = self.doc_norms.get(doc_id, 0)
             if d_norm > 0:
                 cosine = dot_product / (q_norm * d_norm)
                 results.append((doc_id, cosine))
-        
-        # Ordenar por score
+        # Ordenar por score (norm -> predeterminado como) y limitar a k
         if order == 'desc':
             results.sort(key=lambda x: x[1], reverse=True)
         elif order == 'asc':
             results.sort(key=lambda x: x[1])
         elif order == 'norm':
-            # dejarlo como está, ya está ordenado por score
+            # dejarlo como está, sin ordenar
             pass
-        else: 
-            return ValueError("order debe ser 'asc' o 'desc'")
+        else:
+            raise ValueError("order debe ser 'asc', 'desc' o 'norm'")
+        if k is None:
+            k = len(results)
         return results[:k]
-    
 
 
 # --- MAIN ---
@@ -369,7 +361,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_terms_in_block", type=int, default=20000, help="términos únicos por bloque (aprox)")
     parser.add_argument("--build", action="store_true", help="Construir el índice")
     parser.add_argument("--query", type=str, help="Ejecutar una consulta")
-    parser.add_argument("--topk", type=int, default=5, help="Resultados a mostrar")
+    parser.add_argument("--topk", type=int, help="Resultados a mostrar")
     parser.add_argument("--order", type=str, choices=['asc', 'desc', 'norm'], default='norm', help="Orden de resultados")
     
     args = parser.parse_args()
@@ -390,8 +382,13 @@ if __name__ == "__main__":
         idx.run()
         
     if args.query:
-        s = Searcher()
-        res = s.search(args.query, k=args.topk, order=args.order if 'order' in args else 'norm')
+        idx = SPIMIIndex(args.data, args.stopwords, 
+                         args.max_terms_in_block, 
+                         text_col=args.col_text, 
+                         title_col=args.col_title, 
+                         id_col=args.col_id)    
+        idx.load_metadata()
+        res = idx.search(args.query, k=args.topk, order=args.order)
         print(f"\nResultados para: '{args.query}'")
         print("-" * 50)
         for i, (did, score) in enumerate(res, 1):
