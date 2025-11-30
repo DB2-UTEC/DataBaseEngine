@@ -99,6 +99,62 @@ export default function App() {
     }
   };
 
+  const handleUploadImage = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validar formato
+    const validFormats = ['png', 'jpg', 'jpeg'];
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+    if (!fileExtension || !validFormats.includes(fileExtension)) {
+      alert('Solo se permiten archivos PNG, JPG o JPEG');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await apiService.uploadImage(file);
+      // Recargar tablas e imágenes después de subir
+      await loadTables();
+      alert('Imagen subida exitosamente');
+    } catch (error) {
+      console.error('Error subiendo imagen:', error);
+      alert('Error al subir la imagen: ' + (error.message || 'Error desconocido'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUploadFolder = async (event) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    // Filtrar solo imágenes válidas (png, jpg, jpeg)
+    const validFormats = ['png', 'jpg', 'jpeg'];
+    const imageFiles = files.filter(file => {
+      const extension = file.name.split('.').pop()?.toLowerCase();
+      return extension && validFormats.includes(extension);
+    });
+
+    if (imageFiles.length === 0) {
+      alert('No se encontraron imágenes válidas (PNG, JPG, JPEG) en la carpeta seleccionada');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await apiService.uploadFolder(imageFiles);
+      // Recargar tablas e imágenes después de subir
+      await loadTables();
+      alert(`${imageFiles.length} imagen(es) subida(s) exitosamente`);
+    } catch (error) {
+      console.error('Error subiendo carpeta:', error);
+      alert('Error al subir la carpeta: ' + (error.message || 'Error desconocido'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="app-container">
       <Header onSearchTables={handleSearchTables} />
@@ -120,6 +176,8 @@ export default function App() {
               onExecute={handleExecuteQuery}
               onFormat={handleFormatQuery}
               onClear={handleClearResults}
+              onUploadImage={handleUploadImage}
+              onUploadFolder={handleUploadFolder}
             />
           </Panel>
         </PanelGroup>
