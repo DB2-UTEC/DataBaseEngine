@@ -26,6 +26,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalRows, setTotalRows] = useState(0);
+  const [isMultimedia, setIsMultimedia] = useState(false);
 
   // Cargar tablas al iniciar
   useEffect(() => {
@@ -54,13 +55,23 @@ export default function App() {
       const response = await apiService.executeQuery(query, page, 10);
       const executionTime = ((Date.now() - startTime) / 1000).toFixed(3);
       
+      // Detectar si es una consulta multimedia
+      const isMultimediaQuery = response.isMultimedia || false;
+      setIsMultimedia(isMultimediaQuery);
+      
       setResults(response.data);
       setTotalRows(response.totalRows);
       setCurrentPage(page);
-      setStats(`${response.totalRows} filas encontradas • Tiempo: ${executionTime}s`);
+      
+      if (isMultimediaQuery) {
+        setStats(`${response.totalRows} imagen(es) encontrada(s) • Tiempo: ${executionTime}s`);
+      } else {
+        setStats(`${response.totalRows} filas encontradas • Tiempo: ${executionTime}s`);
+      }
     } catch (error) {
       console.error('Error ejecutando consulta:', error);
       setStats('Error al ejecutar la consulta');
+      setIsMultimedia(false);
     } finally {
       setLoading(false);
     }
@@ -77,6 +88,7 @@ export default function App() {
     setStats('');
     setCurrentPage(1);
     setTotalRows(0);
+    setIsMultimedia(false);
   };
 
   const handleSearchTables = async (searchTerm) => {
@@ -178,6 +190,7 @@ export default function App() {
               onClear={handleClearResults}
               onUploadImage={handleUploadImage}
               onUploadFolder={handleUploadFolder}
+              isMultimedia={isMultimedia}
             />
           </Panel>
         </PanelGroup>

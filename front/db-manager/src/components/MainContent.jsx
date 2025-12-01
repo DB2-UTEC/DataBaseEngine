@@ -18,7 +18,8 @@ export default function MainContent({
   onFormat, 
   onClear,
   onUploadImage,
-  onUploadFolder
+  onUploadFolder,
+  isMultimedia = false
 }) {
   const [tabValue, setTabValue] = React.useState(0);
   const [anchorEl, setAnchorEl] = React.useState(null);
@@ -135,6 +136,7 @@ export default function MainContent({
             currentPage={currentPage}
             totalRows={totalRows}
             onPageChange={onExecute}
+            isMultimedia={isMultimedia}
           />
         </Box>
       )}

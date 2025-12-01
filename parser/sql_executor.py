@@ -1068,12 +1068,25 @@ class SQLExecutor:
             from multimedia.sift_inverted_index import SIFTInvertedIndex
             from multimedia.sequential_search import SequentialSIFTSearch
             
-            # Rutas a los archivos multimedia
+            # Asegurar que base_dir apunte a la raíz del proyecto, no a backend/
+            base_dir = self.base_dir
+            # Convertir a ruta absoluta si es relativa
+            if not os.path.isabs(base_dir):
+                base_dir = os.path.abspath(base_dir)
+            
+            # Si base_dir termina en 'backend', subir un nivel
+            if base_dir.endswith('backend') or base_dir.endswith('backend/'):
+                base_dir = os.path.dirname(base_dir)
+            
+            # Rutas a los archivos multimedia (absolutas)
             # Las imágenes ahora están en data/imagenes/
-            IMAGE_DIR = os.path.join(self.base_dir, 'data', 'imagenes')
-            CODEBOOK_PATH = os.path.join(self.base_dir, 'multimedia', 'database', 'codebook.pkl')
-            HISTOGRAMS_PATH = os.path.join(self.base_dir, 'multimedia', 'database', 'histograms.npz')
-            INVERTED_INDEX_PATH = os.path.join(self.base_dir, 'multimedia', 'database', 'inverted_index.pkl')
+            IMAGE_DIR = os.path.abspath(os.path.join(base_dir, 'data', 'imagenes'))
+            CODEBOOK_PATH = os.path.abspath(os.path.join(base_dir, 'multimedia', 'database', 'codebook.pkl'))
+            HISTOGRAMS_PATH = os.path.abspath(os.path.join(base_dir, 'multimedia', 'database', 'histograms.npz'))
+            INVERTED_INDEX_PATH = os.path.abspath(os.path.join(base_dir, 'multimedia', 'database', 'inverted_index.pkl'))
+            
+            print(f"DEBUG base_dir original: {self.base_dir}")
+            print(f"DEBUG base_dir corregido: {base_dir}")
             
             print(f"DEBUG IMAGE_DIR: {IMAGE_DIR}")
             print(f"DEBUG CODEBOOK_PATH: {CODEBOOK_PATH}")
