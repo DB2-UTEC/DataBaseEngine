@@ -23,7 +23,13 @@ export default function ResultsTable({ results, stats, currentPage, totalRows, o
 
   // Si es una consulta multimedia, mostrar componente de imágenes
   if (isMultimedia) {
-    return <ImageResults results={results} stats={stats} loading={loading} />;
+    // Pasar los resultados en el formato esperado por ImageResults
+    // ImageResults espera results.rows o results.data.rows
+    const imageResults = {
+      rows: rows, // Ya normalizado arriba
+      data: results?.data || results
+    };
+    return <ImageResults results={imageResults} stats={stats} loading={loading} />;
   }
 
   // Si no hay datos, mostrar mensaje

@@ -68,7 +68,27 @@ def api_get_image():
             resolved_path = Path(image_path)
             print(f"DEBUG Ruta absoluta del sistema: {resolved_path}")
         
-        # Estrategia 3: Ruta relativa desde data/imagenes/
+        # Estrategia 3: Si la ruta empieza con ./ o contiene multimedia/images, es una ruta antigua
+        elif image_path.startswith('./') or 'multimedia/images' in image_path:
+            # Esta es una ruta antigua del índice, intentar encontrar la imagen en data/imagenes/
+            # Extraer solo el nombre del archivo
+            filename = os.path.basename(image_path.replace('\\', '/'))
+            # Buscar en todas las subcarpetas de data/imagenes/
+            print(f"DEBUG Ruta antigua detectada. Buscando archivo: {filename}")
+            found = False
+            for subfolder in base_images_path.iterdir():
+                if subfolder.is_dir():
+                    potential_path = subfolder / filename
+                    if potential_path.exists() and potential_path.is_file():
+                        resolved_path = potential_path
+                        found = True
+                        print(f"DEBUG Imagen encontrada en: {resolved_path}")
+                        break
+            if not found:
+                print(f"ERROR Imagen no encontrada en ninguna subcarpeta: {filename}")
+                return jsonify({'error': f'Imagen no encontrada: {filename}'}), 404
+        
+        # Estrategia 4: Ruta relativa desde data/imagenes/
         else:
             resolved_path = base_images_path / image_path
             print(f"DEBUG Ruta relativa. Resolviendo a: {resolved_path}")
@@ -387,7 +407,13 @@ def _map_executor_result_to_response(ex_res, plan, page=1, limit=10, is_multimed
     if not ex_res.get('success'):
         return jsonify({'error': ex_res.get('error', 'Error desconocido')}), 400
 
-    operation = plan.operation if isinstance(plan, ExecutionPlan) else plan.get('operation')
+    # Obtener operation de forma segura
+    if isinstance(plan, ExecutionPlan):
+        operation = plan.operation
+    elif isinstance(plan, dict):
+        operation = plan.get('operation', 'SELECT')
+    else:
+        operation = 'SELECT'  # Default
     
     # Para operaciones que no retornan datos (CREATE, INSERT, DELETE, UPDATE)
     if operation in ['CREATE_TABLE', 'INSERT', 'DELETE', 'UPDATE']:
@@ -409,6 +435,9 @@ def _map_executor_result_to_response(ex_res, plan, page=1, limit=10, is_multimed
             # Asegurar que los resultados estén ordenados por score descendente
             rows = sorted(rows, key=lambda x: x.get('score', x.get('similarity', 0)), reverse=True)
             cols = ['id', 'title', 'image_path', 'score', 'similarity'] if rows else []
+            print(f"DEBUG _map_executor_result_to_response (multimedia): {len(rows)} resultados")
+            if rows:
+                print(f"DEBUG Primer resultado: {rows[0]}")
         else:
             # Normalizar filas para consultas SQL normales
             if rows and isinstance(rows[0], (list, tuple)):

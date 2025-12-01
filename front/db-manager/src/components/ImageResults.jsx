@@ -53,8 +53,18 @@ const ScoreChip = styled(Chip)(({ theme, score }) => {
 });
 
 export default function ImageResults({ results, stats, loading = false }) {
+  // Extraer imágenes de los resultados (puede venir en results.rows o results.data.rows)
+  let images = [];
+  if (results) {
+    if (results.rows && Array.isArray(results.rows)) {
+      images = results.rows;
+    } else if (results.data && results.data.rows && Array.isArray(results.data.rows)) {
+      images = results.data.rows;
+    }
+  }
+  
   // Si no hay resultados, mostrar mensaje
-  if (!results || !results.rows || results.rows.length === 0) {
+  if (!images || images.length === 0) {
     return (
       <Box sx={{ padding: 2, textAlign: 'center' }}>
         <Typography variant="body2" color="text.secondary">
@@ -68,9 +78,6 @@ export default function ImageResults({ results, stats, loading = false }) {
       </Box>
     );
   }
-
-  // Extraer imágenes de los resultados
-  const images = results.rows || [];
   
   // Ordenar por score descendente (mayor a menor) si no están ordenadas
   const sortedImages = [...images].sort((a, b) => {

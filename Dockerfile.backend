@@ -17,7 +17,8 @@ COPY . /app
 # Expón el puerto
 EXPOSE 3001
 
-# Define el directorio de trabajo del backend
-WORKDIR /app/backend
+# Define el directorio de trabajo en la raíz del proyecto
+WORKDIR /app
 
-CMD ["python", "app.py"]
+# Ejecutar desde el directorio backend
+CMD ["python", "backend/app.py"]

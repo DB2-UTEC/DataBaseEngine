@@ -161,12 +161,13 @@ class SQLREPL:
             command = command[1:].strip()
             print(f"DEBUG Comando sin prefijo M: {command}")
             
-            # Parsear el formato: SELECT * <NOMBRE-DE-LA-CARPETA> WHERE image-sim <-> <ruta-del-archivo>
+            # Parsear el formato: SELECT * [FROM] <NOMBRE-DE-LA-CARPETA> WHERE image-sim <-> <ruta-del-archivo>
             # Usar expresión regular simple para extraer componentes
             import re
             
-            # Patrón: SELECT * <carpeta> WHERE image-sim <-> <ruta>
-            pattern = r'SELECT\s+\*\s+(\S+)\s+WHERE\s+image-sim\s+<->\s+(.+)'
+            # Patrón: SELECT * [FROM] <carpeta> WHERE image-sim <-> <ruta>
+            # Soporta tanto "SELECT * carpeta" como "SELECT * FROM carpeta"
+            pattern = r'SELECT\s+\*\s+(?:FROM\s+)?(\S+)\s+WHERE\s+image-sim\s+<->\s+(.+)'
             match = re.match(pattern, command, re.IGNORECASE)
             
             if not match:
@@ -290,10 +291,10 @@ class SQLREPL:
             if multimedia_path not in sys.path:
                 sys.path.insert(0, multimedia_path)
             
-            from multimedia.sift_features import get_image_paths
-            from multimedia.bovw import load_codebook, load_histograms
-            from multimedia.sift_inverted_index import SIFTInvertedIndex
+            from multimedia.sift_features import get_image_paths, extract_sift_from_dataset
+            from multimedia.bovw import load_codebook, load_histograms, images_to_histograms
             from multimedia.sequential_search import SequentialSIFTSearch
+            import numpy as np
             
             # Asegurar que base_dir apunte a la raíz del proyecto
             base_dir = self.executor.base_dir
@@ -333,9 +334,11 @@ class SQLREPL:
             vocab_size = kmeans_model.n_clusters
             print(f"DEBUG Codebook cargado: vocab_size={vocab_size}")
             
-            print(f"DEBUG Cargando histogramas desde {HISTOGRAMS_PATH}...")
-            histograms_tfidf, idf_weights = load_histograms(HISTOGRAMS_PATH)
-            print(f"DEBUG Histogramas cargados: shape={histograms_tfidf.shape}")
+            print(f"DEBUG Cargando pesos IDF desde {HISTOGRAMS_PATH}...")
+            # Solo necesitamos los pesos IDF, no los histogramas completos
+            # porque generaremos histogramas solo para la carpeta especificada
+            _, idf_weights = load_histograms(HISTOGRAMS_PATH)
+            print(f"DEBUG Pesos IDF cargados: shape={idf_weights.shape}")
             
             # Obtener rutas de imágenes en la carpeta especificada
             print(f"DEBUG Obteniendo rutas de imágenes desde {image_dir}...")
@@ -347,52 +350,61 @@ class SQLREPL:
                 print(f"ERROR: {error_msg}")
                 return {'success': False, 'error': error_msg}
             
-            # Verificar que el número de imágenes coincida con el número de histogramas
-            # Nota: Esto asume que los histogramas corresponden a todas las imágenes
-            # En una implementación completa, se debería filtrar por carpeta
-            if len(image_paths) != len(histograms_tfidf):
-                print(f"WARN: Número de imágenes ({len(image_paths)}) no coincide con número de histogramas ({len(histograms_tfidf)})")
-                print(f"DEBUG Usando solo las imágenes de la carpeta especificada")
-                # Por ahora, usamos todas las imágenes disponibles
-                # En una implementación completa, se debería mapear correctamente
+            # IMPORTANTE: Generar histogramas SOLO para las imágenes de la carpeta especificada
+            # No usar el índice completo que tiene rutas antiguas de multimedia/images/
+            print(f"DEBUG Generando histogramas solo para imágenes de la carpeta especificada...")
+            from multimedia.bovw import images_to_histograms
             
-            # Intentar usar índice invertido si existe, sino usar búsqueda secuencial
-            if os.path.exists(INVERTED_INDEX_PATH):
-                print(f"DEBUG Usando índice invertido desde {INVERTED_INDEX_PATH}...")
-                inverted_index = SIFTInvertedIndex(vocab_size)
-                inverted_index.load(INVERTED_INDEX_PATH)
-                inverted_index.set_idf(idf_weights)
-                
-                # Realizar búsqueda
-                print(f"DEBUG Realizando búsqueda con índice invertido...")
-                search_results = inverted_index.search_by_image_path(query_image_path, kmeans_model, k=limit)
-            else:
-                print(f"DEBUG Índice invertido no encontrado, usando búsqueda secuencial...")
-                searcher = SequentialSIFTSearch(histograms_tfidf, image_paths, kmeans_model, idf_weights)
-                
-                # Realizar búsqueda
-                print(f"DEBUG Realizando búsqueda secuencial...")
-                search_results = searcher.search(query_image_path, k=limit)
+            # Extraer descriptores SIFT solo de las imágenes de la carpeta
+            print(f"DEBUG Extrayendo descriptores SIFT de {len(image_paths)} imágenes...")
+            folder_descriptors = extract_sift_from_dataset(image_paths, max_keypoints=100)
+            
+            # Generar histogramas solo para estas imágenes
+            print(f"DEBUG Generando histogramas...")
+            folder_histograms = images_to_histograms(folder_descriptors, kmeans_model, vocab_size)
+            
+            # Aplicar TF-IDF (usando los pesos IDF globales)
+            folder_histograms_tfidf = folder_histograms * idf_weights[np.newaxis, :]
+            
+            print(f"DEBUG Histogramas generados para carpeta: shape={folder_histograms_tfidf.shape}")
+            
+            # Usar búsqueda secuencial SOLO con las imágenes de la carpeta especificada
+            print(f"DEBUG Usando búsqueda secuencial solo en imágenes de la carpeta especificada...")
+            searcher = SequentialSIFTSearch(folder_histograms_tfidf, image_paths, kmeans_model, idf_weights)
+            
+            # Realizar búsqueda
+            print(f"DEBUG Realizando búsqueda secuencial...")
+            search_results = searcher.search(query_image_path, k=limit)
             
             print(f"DEBUG Búsqueda completada: {len(search_results)} resultados encontrados")
             
             # Convertir resultados al formato esperado
+            # Los resultados ya vienen de image_paths (solo imágenes de la carpeta especificada)
             results = []
             for img_path, score in search_results:
-                # Extraer nombre del archivo de la ruta
+                # Asegurar que la ruta sea absoluta
+                if not os.path.isabs(img_path):
+                    img_path = os.path.abspath(img_path)
+                
+                # Verificar que el archivo exista
+                if not os.path.exists(img_path):
+                    print(f"DEBUG Filtrando imagen que no existe: {img_path}")
+                    continue
+                
+                # Extraer nombre del archivo
                 img_filename = os.path.basename(img_path)
                 
                 # Crear diccionario con los resultados
                 result_dict = {
                     'id': img_filename,
                     'title': os.path.splitext(img_filename)[0],
-                    'image_path': img_path,
+                    'image_path': img_path,  # Ruta absoluta correcta (ya viene de image_paths)
                     'score': float(score),
                     'similarity': float(score)
                 }
                 
                 results.append(result_dict)
-                print(f"DEBUG Resultado: {img_filename} -> score={score:.4f}")
+                print(f"DEBUG Resultado: {img_filename} -> score={score:.4f}, path={img_path}")
             
             print(f"DEBUG Total de resultados formateados: {len(results)}")
             print(f"{'='*60}\n")

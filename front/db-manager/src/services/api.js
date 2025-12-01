@@ -11,15 +11,29 @@ export const apiService = {
 
   // Ejecutar consulta SQL
   async executeQuery(query, page = 1, limit = 10) {
-    const response = await fetch(`${API_BASE_URL}/query`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ query, page, limit }),
-    });
-    if (!response.ok) throw new Error('Error al ejecutar consulta');
-    return response.json();
+    // Crear un AbortController para timeout de 5 minutos (300 segundos)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutos (300000 ms)
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query, page, limit }),
+        signal: controller.signal, // Agregar signal para timeout
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) throw new Error('Error al ejecutar consulta');
+      return response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('La consulta tardó demasiado tiempo (más de 5 minutos)');
+      }
+      throw error;
+    }
   },
 
   // Buscar tablas
