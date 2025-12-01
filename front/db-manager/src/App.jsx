@@ -26,6 +26,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalRows, setTotalRows] = useState(0);
+  const [isMultimedia, setIsMultimedia] = useState(false);
 
   // Cargar tablas al iniciar
   useEffect(() => {
@@ -54,13 +55,23 @@ export default function App() {
       const response = await apiService.executeQuery(query, page, 10);
       const executionTime = ((Date.now() - startTime) / 1000).toFixed(3);
       
+      // Detectar si es una consulta multimedia
+      const isMultimediaQuery = response.isMultimedia || false;
+      setIsMultimedia(isMultimediaQuery);
+      
       setResults(response.data);
       setTotalRows(response.totalRows);
       setCurrentPage(page);
-      setStats(`${response.totalRows} filas encontradas • Tiempo: ${executionTime}s`);
+      
+      if (isMultimediaQuery) {
+        setStats(`${response.totalRows} imagen(es) encontrada(s) • Tiempo: ${executionTime}s`);
+      } else {
+        setStats(`${response.totalRows} filas encontradas • Tiempo: ${executionTime}s`);
+      }
     } catch (error) {
       console.error('Error ejecutando consulta:', error);
       setStats('Error al ejecutar la consulta');
+      setIsMultimedia(false);
     } finally {
       setLoading(false);
     }
@@ -77,6 +88,7 @@ export default function App() {
     setStats('');
     setCurrentPage(1);
     setTotalRows(0);
+    setIsMultimedia(false);
   };
 
   const handleSearchTables = async (searchTerm) => {
@@ -96,6 +108,62 @@ export default function App() {
         return name.toLowerCase().includes(searchTerm.toLowerCase());
       });
       setFilteredTables(filtered);
+    }
+  };
+
+  const handleUploadImage = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validar formato
+    const validFormats = ['png', 'jpg', 'jpeg'];
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+    if (!fileExtension || !validFormats.includes(fileExtension)) {
+      alert('Solo se permiten archivos PNG, JPG o JPEG');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await apiService.uploadImage(file);
+      // Recargar tablas e imágenes después de subir
+      await loadTables();
+      alert('Imagen subida exitosamente');
+    } catch (error) {
+      console.error('Error subiendo imagen:', error);
+      alert('Error al subir la imagen: ' + (error.message || 'Error desconocido'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUploadFolder = async (event) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    // Filtrar solo imágenes válidas (png, jpg, jpeg)
+    const validFormats = ['png', 'jpg', 'jpeg'];
+    const imageFiles = files.filter(file => {
+      const extension = file.name.split('.').pop()?.toLowerCase();
+      return extension && validFormats.includes(extension);
+    });
+
+    if (imageFiles.length === 0) {
+      alert('No se encontraron imágenes válidas (PNG, JPG, JPEG) en la carpeta seleccionada');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await apiService.uploadFolder(imageFiles);
+      // Recargar tablas e imágenes después de subir
+      await loadTables();
+      alert(`${imageFiles.length} imagen(es) subida(s) exitosamente`);
+    } catch (error) {
+      console.error('Error subiendo carpeta:', error);
+      alert('Error al subir la carpeta: ' + (error.message || 'Error desconocido'));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -120,6 +188,9 @@ export default function App() {
               onExecute={handleExecuteQuery}
               onFormat={handleFormatQuery}
               onClear={handleClearResults}
+              onUploadImage={handleUploadImage}
+              onUploadFolder={handleUploadFolder}
+              isMultimedia={isMultimedia}
             />
           </Panel>
         </PanelGroup>

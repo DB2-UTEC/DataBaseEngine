@@ -1,8 +1,9 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
+import ImageResults from './ImageResults';
 
-export default function ResultsTable({ results, stats, currentPage, totalRows, onPageChange, loading = false }) {
+export default function ResultsTable({ results, stats, currentPage, totalRows, onPageChange, loading = false, isMultimedia = false }) {
   const handlePageChange = (newPage) => {
     onPageChange(newPage + 1);
   };
@@ -18,6 +19,17 @@ export default function ResultsTable({ results, stats, currentPage, totalRows, o
       cols = results.columns || [];
       rows = results.rows || [];
     }
+  }
+
+  // Si es una consulta multimedia, mostrar componente de imágenes
+  if (isMultimedia) {
+    // Pasar los resultados en el formato esperado por ImageResults
+    // ImageResults espera results.rows o results.data.rows
+    const imageResults = {
+      rows: rows, // Ya normalizado arriba
+      data: results?.data || results
+    };
+    return <ImageResults results={imageResults} stats={stats} loading={loading} />;
   }
 
   // Si no hay datos, mostrar mensaje
@@ -44,7 +56,7 @@ export default function ResultsTable({ results, stats, currentPage, totalRows, o
     ...r 
   }));
 
-  // ✅ Crear key único basado en los datos
+  // Crear key único basado en los datos
   const tableKey = `${cols.join('-')}-${rows.length}-${Date.now()}`;
 
   return (

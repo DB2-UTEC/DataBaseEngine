@@ -11,15 +11,29 @@ export const apiService = {
 
   // Ejecutar consulta SQL
   async executeQuery(query, page = 1, limit = 10) {
-    const response = await fetch(`${API_BASE_URL}/query`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ query, page, limit }),
-    });
-    if (!response.ok) throw new Error('Error al ejecutar consulta');
-    return response.json();
+    // Crear un AbortController para timeout de 5 minutos (300 segundos)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutos (300000 ms)
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query, page, limit }),
+        signal: controller.signal, // Agregar signal para timeout
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) throw new Error('Error al ejecutar consulta');
+      return response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('La consulta tardó demasiado tiempo (más de 5 minutos)');
+      }
+      throw error;
+    }
   },
 
   // Buscar tablas
@@ -39,6 +53,32 @@ export const apiService = {
       body: JSON.stringify({ query }),
     });
     if (!response.ok) throw new Error('Error al formatear consulta');
+    return response.json();
+  },
+
+  // Subir imagen
+  async uploadImage(file) {
+    const formData = new FormData();
+    formData.append('image', file);
+    const response = await fetch(`${API_BASE_URL}/upload-image`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) throw new Error('Error al subir imagen');
+    return response.json();
+  },
+
+  // Subir carpeta con múltiples imágenes
+  async uploadFolder(files) {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append('images', file);
+    });
+    const response = await fetch(`${API_BASE_URL}/upload-folder`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) throw new Error('Error al subir carpeta');
     return response.json();
   },
 };

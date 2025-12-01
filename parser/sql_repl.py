@@ -65,10 +65,25 @@ class SQLLogger:
 class SQLREPL:
     """REPL principal para comandos SQL."""
     
-    def __init__(self, verbose: bool = False):
-        """Inicializa el REPL."""
+    def __init__(self, verbose: bool = False, base_dir: str = None):
+        """
+        Inicializa el REPL.
+        
+        Args:
+            verbose: Modo verbose para logging
+            base_dir: Directorio base del proyecto (opcional, se detecta automáticamente si no se proporciona)
+        """
         self.parser = SQLParser()
-        self.executor = SQLExecutor()
+        # Si no se proporciona base_dir, intentar detectarlo
+        if base_dir is None:
+            # Intentar detectar desde el directorio actual
+            current_dir = os.path.abspath(os.getcwd())
+            # Si estamos en backend/, subir un nivel
+            if current_dir.endswith('backend') or current_dir.endswith('backend/'):
+                base_dir = os.path.dirname(current_dir)
+            else:
+                base_dir = current_dir
+        self.executor = SQLExecutor(base_dir=base_dir)
         self.logger = SQLLogger(verbose)
         self.verbose = verbose
     
@@ -86,7 +101,14 @@ class SQLREPL:
             # Log del comando
             self.logger.log_command(command)
             
-            # Parsear comando
+            # DEBUG: Verificar si es una consulta multimedia (empieza con M o m)
+            command_stripped = command.strip()
+            if command_stripped and (command_stripped[0].upper() == 'M'):
+                print(f"DEBUG execute_command: Detectada consulta multimedia")
+                # Es una consulta multimedia, no pasar por el parser SQL normal
+                return self._execute_multimedia_query(command_stripped)
+            
+            # Parsear comando SQL normal
             plan = self.parser.parse(command)
             
             if plan is None:
@@ -116,6 +138,296 @@ class SQLREPL:
                 traceback.print_exc()
             
             return {'success': False, 'error': str(error)}
+    
+    def _execute_multimedia_query(self, command: str) -> Dict[str, Any]:
+        """
+        Ejecuta una consulta multimedia en formato especial.
+        
+        Formato esperado: M SELECT * <NOMBRE-DE-LA-CARPETA> WHERE image-sim <-> <ruta-del-archivo>
+        
+        Args:
+            command: Comando multimedia completo
+            
+        Returns:
+            Diccionario con el resultado de la búsqueda
+        """
+        print(f"\n{'='*60}")
+        print(f"DEBUG _execute_multimedia_query: Procesando consulta multimedia")
+        print(f"DEBUG Comando completo: {command}")
+        print(f"{'='*60}\n")
+        
+        try:
+            # Remover el prefijo "M" o "m"
+            command = command[1:].strip()
+            print(f"DEBUG Comando sin prefijo M: {command}")
+            
+            # Parsear el formato: SELECT * [FROM] <NOMBRE-DE-LA-CARPETA> WHERE image-sim <-> <ruta-del-archivo>
+            # Usar expresión regular simple para extraer componentes
+            import re
+            
+            # Patrón: SELECT * [FROM] <carpeta> WHERE image-sim <-> <ruta>
+            # Soporta tanto "SELECT * carpeta" como "SELECT * FROM carpeta"
+            pattern = r'SELECT\s+\*\s+(?:FROM\s+)?(\S+)\s+WHERE\s+image-sim\s+<->\s+(.+)'
+            match = re.match(pattern, command, re.IGNORECASE)
+            
+            if not match:
+                error_msg = f"Formato de consulta multimedia inválido. Formato esperado: M SELECT * <NOMBRE-CARPETA> WHERE image-sim <-> <ruta-archivo>"
+                print(f"ERROR: {error_msg}")
+                print(f"DEBUG Comando recibido: {command}")
+                return {'success': False, 'error': error_msg}
+            
+            folder_name = match.group(1).strip()
+            query_image_path = match.group(2).strip()
+            
+            # Remover comillas si las tiene
+            if query_image_path.startswith(('"', "'")) and query_image_path.endswith(('"', "'")):
+                query_image_path = query_image_path[1:-1]
+            
+            print(f"DEBUG Carpeta: {folder_name}")
+            print(f"DEBUG Ruta imagen query: {query_image_path}")
+            
+            # Construir ruta completa a la carpeta de imágenes
+            # Asegurar que base_dir apunte a la raíz del proyecto, no a backend/
+            base_dir = self.executor.base_dir
+            # Convertir a ruta absoluta si es relativa
+            if not os.path.isabs(base_dir):
+                base_dir = os.path.abspath(base_dir)
+            
+            # Si base_dir termina en 'backend', subir un nivel
+            if base_dir.endswith('backend') or base_dir.endswith('backend/'):
+                base_dir = os.path.dirname(base_dir)
+            
+            # Construir ruta absoluta a la carpeta de imágenes
+            image_dir = os.path.join(base_dir, 'data', 'imagenes', folder_name)
+            # Asegurar que sea ruta absoluta
+            image_dir = os.path.abspath(image_dir)
+            
+            print(f"DEBUG base_dir original: {self.executor.base_dir}")
+            print(f"DEBUG base_dir corregido: {base_dir}")
+            print(f"DEBUG Directorio de imágenes (absoluto): {image_dir}")
+            print(f"DEBUG ¿Existe?: {os.path.exists(image_dir)}")
+            
+            # Verificar que exista la carpeta
+            if not os.path.exists(image_dir):
+                # Intentar con diferentes variaciones de la ruta
+                alt_paths = [
+                    os.path.join('/app', 'data', 'imagenes', folder_name),  # Ruta absoluta Docker
+                    os.path.join(base_dir, 'data', 'imagenes', folder_name),
+                    image_dir
+                ]
+                
+                found = False
+                for alt_path in alt_paths:
+                    alt_path = os.path.abspath(alt_path)
+                    print(f"DEBUG Intentando ruta alternativa: {alt_path}")
+                    if os.path.exists(alt_path):
+                        image_dir = alt_path
+                        found = True
+                        print(f"DEBUG Ruta encontrada: {image_dir}")
+                        break
+                
+                if not found:
+                    error_msg = f"Carpeta de imágenes no encontrada: {image_dir}"
+                    print(f"ERROR: {error_msg}")
+                    print(f"DEBUG Rutas probadas:")
+                    for alt_path in alt_paths:
+                        print(f"  - {os.path.abspath(alt_path)} (existe: {os.path.exists(os.path.abspath(alt_path))})")
+                    return {'success': False, 'error': error_msg}
+            
+            # Verificar que exista la imagen query
+            if not os.path.exists(query_image_path):
+                # Intentar con ruta relativa desde base_dir
+                query_image_path_alt = os.path.join(self.executor.base_dir, query_image_path)
+                if os.path.exists(query_image_path_alt):
+                    query_image_path = query_image_path_alt
+                    print(f"DEBUG Usando ruta alternativa: {query_image_path}")
+                else:
+                    error_msg = f"Imagen query no encontrada: {query_image_path}"
+                    print(f"ERROR: {error_msg}")
+                    return {'success': False, 'error': error_msg}
+            
+            print(f"DEBUG Imagen query encontrada: {query_image_path}")
+            
+            # Ejecutar búsqueda multimedia directamente usando las funciones de multimedia/
+            result = self._execute_multimedia_search_direct(image_dir, query_image_path, limit=10)
+            
+            if result.get('success'):
+                self.logger.log_success(f"Búsqueda multimedia completada: {result.get('count', 0)} resultados")
+            else:
+                self.logger.log_error(SQLError(result.get('error', 'Error en búsqueda multimedia')))
+            
+            return result
+            
+        except Exception as e:
+            error_msg = f"Error procesando consulta multimedia: {e}"
+            print(f"ERROR: {error_msg}")
+            if self.verbose:
+                traceback.print_exc()
+            return {'success': False, 'error': error_msg}
+    
+    def _execute_multimedia_search_direct(self, image_dir: str, query_image_path: str, limit: int = 10) -> Dict[str, Any]:
+        """
+        Ejecuta búsqueda multimedia directamente usando las funciones de multimedia/.
+        
+        Args:
+            image_dir: Directorio donde están las imágenes de la base de datos
+            query_image_path: Ruta a la imagen query
+            limit: Número máximo de resultados
+            
+        Returns:
+            Diccionario con los resultados de la búsqueda
+        """
+        print(f"\n{'='*60}")
+        print(f"DEBUG _execute_multimedia_search_direct: Iniciando búsqueda multimedia")
+        print(f"DEBUG image_dir: {image_dir}")
+        print(f"DEBUG query_image_path: {query_image_path}")
+        print(f"DEBUG limit: {limit}")
+        print(f"{'='*60}\n")
+        
+        try:
+            # Importar módulos multimedia
+            import sys
+            multimedia_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'multimedia')
+            if multimedia_path not in sys.path:
+                sys.path.insert(0, multimedia_path)
+            
+            from multimedia.sift_features import get_image_paths, extract_sift_from_dataset
+            from multimedia.bovw import load_codebook, load_histograms, images_to_histograms
+            from multimedia.sequential_search import SequentialSIFTSearch
+            import numpy as np
+            
+            # Asegurar que base_dir apunte a la raíz del proyecto
+            base_dir = self.executor.base_dir
+            # Convertir a ruta absoluta si es relativa
+            if not os.path.isabs(base_dir):
+                base_dir = os.path.abspath(base_dir)
+            
+            # Si base_dir termina en 'backend', subir un nivel
+            if base_dir.endswith('backend') or base_dir.endswith('backend/'):
+                base_dir = os.path.dirname(base_dir)
+            
+            # Rutas a los archivos multimedia (absolutas)
+            CODEBOOK_PATH = os.path.abspath(os.path.join(base_dir, 'multimedia', 'database', 'codebook.pkl'))
+            HISTOGRAMS_PATH = os.path.abspath(os.path.join(base_dir, 'multimedia', 'database', 'histograms.npz'))
+            INVERTED_INDEX_PATH = os.path.abspath(os.path.join(base_dir, 'multimedia', 'database', 'inverted_index.pkl'))
+            
+            print(f"DEBUG base_dir para multimedia: {base_dir}")
+            
+            print(f"DEBUG CODEBOOK_PATH: {CODEBOOK_PATH}")
+            print(f"DEBUG HISTOGRAMS_PATH: {HISTOGRAMS_PATH}")
+            print(f"DEBUG INVERTED_INDEX_PATH: {INVERTED_INDEX_PATH}")
+            
+            # Verificar que existan los archivos necesarios
+            if not os.path.exists(CODEBOOK_PATH):
+                error_msg = f"Codebook no encontrado en {CODEBOOK_PATH}. Ejecute primero la construcción del índice multimedia."
+                print(f"ERROR: {error_msg}")
+                return {'success': False, 'error': error_msg}
+            
+            if not os.path.exists(HISTOGRAMS_PATH):
+                error_msg = f"Histogramas no encontrados en {HISTOGRAMS_PATH}. Ejecute primero la construcción del índice multimedia."
+                print(f"ERROR: {error_msg}")
+                return {'success': False, 'error': error_msg}
+            
+            # Cargar modelos multimedia
+            print(f"DEBUG Cargando codebook desde {CODEBOOK_PATH}...")
+            kmeans_model, _ = load_codebook(CODEBOOK_PATH)
+            vocab_size = kmeans_model.n_clusters
+            print(f"DEBUG Codebook cargado: vocab_size={vocab_size}")
+            
+            print(f"DEBUG Cargando pesos IDF desde {HISTOGRAMS_PATH}...")
+            # Solo necesitamos los pesos IDF, no los histogramas completos
+            # porque generaremos histogramas solo para la carpeta especificada
+            _, idf_weights = load_histograms(HISTOGRAMS_PATH)
+            print(f"DEBUG Pesos IDF cargados: shape={idf_weights.shape}")
+            
+            # Obtener rutas de imágenes en la carpeta especificada
+            print(f"DEBUG Obteniendo rutas de imágenes desde {image_dir}...")
+            image_paths = get_image_paths(image_dir)
+            print(f"DEBUG Encontradas {len(image_paths)} imágenes en la carpeta")
+            
+            if len(image_paths) == 0:
+                error_msg = f"No se encontraron imágenes en {image_dir}"
+                print(f"ERROR: {error_msg}")
+                return {'success': False, 'error': error_msg}
+            
+            # IMPORTANTE: Generar histogramas SOLO para las imágenes de la carpeta especificada
+            # No usar el índice completo que tiene rutas antiguas de multimedia/images/
+            print(f"DEBUG Generando histogramas solo para imágenes de la carpeta especificada...")
+            from multimedia.bovw import images_to_histograms
+            
+            # Extraer descriptores SIFT solo de las imágenes de la carpeta
+            print(f"DEBUG Extrayendo descriptores SIFT de {len(image_paths)} imágenes...")
+            folder_descriptors = extract_sift_from_dataset(image_paths, max_keypoints=100)
+            
+            # Generar histogramas solo para estas imágenes
+            print(f"DEBUG Generando histogramas...")
+            folder_histograms = images_to_histograms(folder_descriptors, kmeans_model, vocab_size)
+            
+            # Aplicar TF-IDF (usando los pesos IDF globales)
+            folder_histograms_tfidf = folder_histograms * idf_weights[np.newaxis, :]
+            
+            print(f"DEBUG Histogramas generados para carpeta: shape={folder_histograms_tfidf.shape}")
+            
+            # Usar búsqueda secuencial SOLO con las imágenes de la carpeta especificada
+            print(f"DEBUG Usando búsqueda secuencial solo en imágenes de la carpeta especificada...")
+            searcher = SequentialSIFTSearch(folder_histograms_tfidf, image_paths, kmeans_model, idf_weights)
+            
+            # Realizar búsqueda
+            print(f"DEBUG Realizando búsqueda secuencial...")
+            search_results = searcher.search(query_image_path, k=limit)
+            
+            print(f"DEBUG Búsqueda completada: {len(search_results)} resultados encontrados")
+            
+            # Convertir resultados al formato esperado
+            # Los resultados ya vienen de image_paths (solo imágenes de la carpeta especificada)
+            results = []
+            for img_path, score in search_results:
+                # Asegurar que la ruta sea absoluta
+                if not os.path.isabs(img_path):
+                    img_path = os.path.abspath(img_path)
+                
+                # Verificar que el archivo exista
+                if not os.path.exists(img_path):
+                    print(f"DEBUG Filtrando imagen que no existe: {img_path}")
+                    continue
+                
+                # Extraer nombre del archivo
+                img_filename = os.path.basename(img_path)
+                
+                # Crear diccionario con los resultados
+                result_dict = {
+                    'id': img_filename,
+                    'title': os.path.splitext(img_filename)[0],
+                    'image_path': img_path,  # Ruta absoluta correcta (ya viene de image_paths)
+                    'score': float(score),
+                    'similarity': float(score)
+                }
+                
+                results.append(result_dict)
+                print(f"DEBUG Resultado: {img_filename} -> score={score:.4f}, path={img_path}")
+            
+            print(f"DEBUG Total de resultados formateados: {len(results)}")
+            print(f"{'='*60}\n")
+            
+            return {
+                'success': True,
+                'results': results,
+                'count': len(results),
+                'message': f'Búsqueda multimedia completada: {len(results)} resultados encontrados'
+            }
+            
+        except ImportError as e:
+            error_msg = f"Error importando módulos multimedia: {e}"
+            print(f"ERROR: {error_msg}")
+            if self.verbose:
+                traceback.print_exc()
+            return {'success': False, 'error': error_msg}
+        except Exception as e:
+            error_msg = f"Error ejecutando búsqueda multimedia: {e}"
+            print(f"ERROR: {error_msg}")
+            if self.verbose:
+                traceback.print_exc()
+            return {'success': False, 'error': error_msg}
     
     def execute_file(self, filename: str) -> List[Dict[str, Any]]:
         """
@@ -180,7 +492,13 @@ Comandos SQL soportados:
 4. DELETE:
    - DELETE FROM tabla WHERE campo = valor;
 
-5. Comandos especiales:
+5. BÚSQUEDA MULTIMEDIA (por similitud de imágenes):
+   - M SELECT * <NOMBRE-CARPETA> WHERE image-sim <-> "ruta/imagen.jpg"
+   - Ejemplo: M SELECT * mi_carpeta WHERE image-sim <-> "D:\\imagenes\\query.jpg"
+   - Las imágenes deben estar en: data/imagenes/<NOMBRE-CARPETA>/
+   - Requiere que se haya construido el índice multimedia previamente
+
+6. Comandos especiales:
    - .help - Mostrar esta ayuda
    - .tables - Listar tablas
    - .info tabla - Información de tabla
@@ -199,6 +517,7 @@ CREATE TABLE Restaurantes FROM FILE "datos.csv" USING INDEX BTree("id");
 SELECT * FROM Restaurantes WHERE precio BETWEEN 20 AND 50;
 INSERT INTO Restaurantes VALUES (100, "Nuevo", 25.50);
 DELETE FROM Restaurantes WHERE id = 100;
+M SELECT * mi_carpeta WHERE image-sim <-> "C:\\imagenes\\buscar.jpg";
         """
         print(help_text)
     
