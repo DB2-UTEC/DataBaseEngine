@@ -348,8 +348,7 @@ class SPIMIIndex:
         elif order == 'asc':
             results.sort(key=lambda x: x[1])
         elif order == 'norm':
-            # dejarlo como está, sin ordenar
-            pass
+            results.sort(key=lambda x: abs(x[1]), reverse=True) # por valor absoluto
         else:
             raise ValueError("order debe ser 'asc', 'desc' o 'norm'")
         if k is None:

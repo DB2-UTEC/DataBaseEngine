@@ -308,64 +308,8 @@
     "fields": null,
     "index_type": "FULLTEXT",
     "key_field": "text",
-    "source": "data/test_ft.csv",
+    "source": "/app/data/test_ft.csv",
     "text_col": "text",
-    "id_col": "text"
-  },
-  "TestFT2": {
-    "table_name": "TestFT2",
-    "fields": [
-      {
-        "name": "id",
-        "type": "VARCHAR",
-        "size": 0,
-        "index": null
-      },
-      {
-        "name": "title",
-        "type": "VARCHAR",
-        "size": 0,
-        "index": null
-      },
-      {
-        "name": "text",
-        "type": "VARCHAR",
-        "size": 0,
-        "index": null
-      }
-    ],
-    "index_type": "FULLTEXT",
-    "key_field": "text",
-    "source": "data/test_ft.csv",
-    "text_col": "text",
-    "id_col": "text"
-  },
-  "News": {
-    "table_name": "News",
-    "fields": [
-      {
-        "name": "id",
-        "type": "VARCHAR",
-        "size": 0,
-        "index": null
-      },
-      {
-        "name": "title",
-        "type": "VARCHAR",
-        "size": 0,
-        "index": null
-      },
-      {
-        "name": "text",
-        "type": "VARCHAR",
-        "size": 0,
-        "index": null
-      }
-    ],
-    "index_type": "FULLTEXT",
-    "key_field": "text",
-    "source": "/app/data/news_text_dataset.csv",
-    "text_col": "text",
-    "id_col": "text"
+    "id_col": "id"
   }
 }

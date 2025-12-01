@@ -213,7 +213,7 @@ class SQLTransformer(Transformer):
                     table_name = unwrapped
                 elif file_path is None and ('.csv' in unwrapped or unwrapped.endswith('.csv')):
                     file_path = unwrapped
-                elif index_type is None and unwrapped.upper() in ['BTREE', 'EXTENDIBLEHASH', 'ISAM', 'SEQ', 'RTREE']:
+                elif index_type is None and unwrapped.upper() in ['BTREE', 'EXTENDIBLEHASH', 'ISAM', 'SEQ', 'RTREE','FULLTEXT', 'SPIMI']:
                     index_type = unwrapped.upper()
                 elif key_field is None and unwrapped not in [table_name, file_path, index_type]:
                     key_field = unwrapped
@@ -284,7 +284,7 @@ class SQLTransformer(Transformer):
             item = items[i]
             unwrapped = self._unwrap_tree_token(item)
             
-            if isinstance(unwrapped, str) and unwrapped.upper() in ['SEQ', 'BTREE', 'EXTENDIBLEHASH', 'ISAM', 'RTREE']:
+            if isinstance(unwrapped, str) and unwrapped.upper() in ['SEQ', 'BTREE', 'EXTENDIBLEHASH', 'ISAM', 'RTREE', 'FULLTEXT', 'SPIMI']:
                 index_type = unwrapped.upper()
                 break
         
@@ -494,9 +494,16 @@ class SQLTransformer(Transformer):
                 sel = ['*']
             elif isinstance(it, Token) and it.type == 'CNAME':
                 table = str(it)
+            elif isinstance(it, (int, float)):
+                limit_value = int(it)
+            elif isinstance(it, Token) and it.type == 'INT':
+                try:
+                    limit_value = int(str(it))
+                except Exception:
+                    pass
             elif isinstance(it, str) and table is None:
                 table = it
-            elif isinstance(it, dict) and it.get('type') in ('comparison', 'between', 'spatial', 'multimedia', 'and', 'or'):
+            elif isinstance(it, dict) and it.get('type') in ('comparison', 'between', 'spatial', 'multimedia', 'fulltext', 'and', 'or'):
                 where = it
             # BUSCAR where_clause EN TREES
             elif hasattr(it, 'data') and it.data == 'where_clause':
@@ -511,7 +518,10 @@ class SQLTransformer(Transformer):
                 if isinstance(limit_content, (int, float)):
                     limit_value = int(limit_content)
                 elif isinstance(limit_content, list) and limit_content:
-                    limit_value = int(limit_content[0])
+                    try:
+                        limit_value = int(limit_content[0])
+                    except Exception:
+                        pass
         
         print(f"DEBUG select_statement final: table={table}, where={where}, limit={limit_value}")
         return ExecutionPlan('SELECT', table_name=table, select_list=sel or ['*'], where_clause=where, limit=limit_value)
@@ -523,31 +533,37 @@ class SQLTransformer(Transformer):
         """Procesa comparaciones corregido."""
         print(f"DEBUG comparison items: {items}")
         
-        if len(items) >= 3:
+        if len(items) >= 2:
             field = self._unwrap_tree_token(items[0])
             operator_tree = items[1]
-            value = self._unwrap_tree_token(items[2])
+            value = self._unwrap_tree_token(items[2]) if len(items) >= 3 else None
             
-            # Procesar operador específicamente
-            operator = "="  # default
-            if hasattr(operator_tree, 'data') and operator_tree.data == 'comparison_operator':
-                if operator_tree.children:
-                    operator = self._unwrap_tree_token(operator_tree.children[0])
-                else:
-                    # Si el Tree está vacío, asumir "="
-                    operator = "="
+            # Determinar el operador
+            operator = None  # default
+            if isinstance (operator_tree, Token):
+                operator = str(operator_tree).upper()
             else:
-                operator = self._unwrap_tree_token(operator_tree)
-            
-            result = {
+                try:
+                    operator = self._unwrap_tree_token(operator_tree)
+                except:
+                    operator = str(operator_tree)
+            # Manejar caso especial de FULLTEXT
+            if operator in ('@@', 'FTMATCH', 'MATCH'):
+                q = value
+                result = {
+                    "type": "fulltext", 
+                    "field": field,
+                    "query": q
+                }
+                print(f"DEBUG fulltext result: {result}")
+                return result
+            return {
                 "type": "comparison", 
                 "field": field,
                 "operator": operator,
                 "value": value
             }
-            print(f"DEBUG comparison result: {result}")
-            return result
-        
+                    
         return None
 
     def condition(self, items):
@@ -875,7 +891,10 @@ class SQLTransformer(Transformer):
     def INT(self, token):
         """Procesa token INT."""
         print(f"DEBUG INT token: {token}")
-        return "INT"
+        try:
+            return int(str(token))
+        except ValueError:
+            return int(token.value) if hasattr(token, 'value') else 0
 
     def FLOAT(self, token):
         return "FLOAT"
