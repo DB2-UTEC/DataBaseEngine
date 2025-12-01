@@ -74,23 +74,6 @@ def term_to_filename(term: str) -> str:
     h = hashlib.sha1(term.encode('utf-8')).hexdigest()
     return f"{h}.pkl" 
 
-def save_term_binary(term: str, postings: List[Dict[str, Any]]):
-    """Guarda la posting list final de un término en un archivo binario individual."""
-    os.makedirs(BINARY_TERMS_DIR, exist_ok=True)
-    filename = term_to_filename(term)
-    path = os.path.join(BINARY_TERMS_DIR, filename)
-    with open(path, 'wb') as f:
-        pickle.dump({'term': term, 'postings': postings}, f, protocol=pickle.HIGHEST_PROTOCOL)
-    return filename
-
-def load_term_binary_by_filename(filename: str) -> Dict[str, Any]:
-    """Carga en RAM solo la posting list solicitada."""
-    path = os.path.join(BINARY_TERMS_DIR, filename)
-    if not os.path.exists(path):
-        return None
-    with open(path, 'rb') as f:
-        return pickle.load(f)
-
 # --- 3. INDEXADOR (SPIMI) ---
 
 class SPIMIIndex:
@@ -99,8 +82,13 @@ class SPIMIIndex:
         self.preproc = Preprocessor(stopwords_file)
         self.max_terms_in_block = max_terms_in_block # Ajustable según RAM disponible
         
-        os.makedirs(BLOCKS_DIR, exist_ok=True)
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        # Cada indice escribe sus outputs en OUTPUT_DIR/<basename>
+        base = os.path.splitext(os.path.basename(datafilename))[0]
+        self.output_subdir = os.path.join(OUTPUT_DIR, base)
+        self.blocks_dir = os.path.join(self.output_subdir, 'blocks')
+        self.binary_terms_dir = os.path.join(self.output_subdir, 'binary_terms')
+        os.makedirs(self.blocks_dir, exist_ok=True)
+        os.makedirs(self.output_subdir, exist_ok=True)
 
         self.total_docs = 0
         self.block_count = 0
@@ -109,10 +97,32 @@ class SPIMIIndex:
         self.title_col = title_col
         self.id_col = id_col
 
+        # rutas de metadatos por indice
+        self.vocab_map_path = os.path.join(self.output_subdir, 'vocab_map.json')
+        self.doc_norms_path =  os.path.join(self.output_subdir, 'doc_norms.json')
+        self.idf_path = os.path.join(self.output_subdir, 'idf.json')    
+    
+    def _save_term_binary(self, term: str, postings: List[Dict[str, Any]]) -> str:
+        """Guarda la posting list final de un término en un archivo binario individual."""
+        os.makedirs(self.binary_terms_dir, exist_ok=True)
+        filename = term_to_filename(term)
+        path = os.path.join(self.binary_terms_dir, filename)
+        with open(path, 'wb') as f:
+            pickle.dump({'term': term, 'postings': postings}, f, protocol=pickle.HIGHEST_PROTOCOL)
+        return filename
+    
+    def _load_term_binary_by_filename(self, filename: str) -> Dict[str, Any]:
+        """Carga en RAM solo la posting list solicitada."""
+        path = os.path.join(self.binary_terms_dir, filename)
+        if not os.path.exists(path):
+            return None
+        with open(path, 'rb') as f:
+            return pickle.load(f)
+
     def _write_block_disk(self, block_terms: Dict[str, List[Dict[str, Any]]]) -> str:
         """Escribe un bloque temporal en disco ordenado alfabéticamente."""
-        path = os.path.join(BLOCKS_DIR, f"block_{self.block_count:04d}.jsonl")
-        print(f"   --> Escribiendo Bloque {self.block_count} con {len(block_terms)} términos...")
+        path = os.path.join(self.blocks_dir, f"block_{self.block_count:04d}.jsonl")
+        print(f"   --> Escribiendo Bloque {self.block_count} con {len(block_terms)} términos en {self.blocks_dir}...")
         with open(path, "w", encoding = "utf-8") as f:
             # Ordenamos los términos antes de escribir para facilitar el Merge
             sorted_terms = sorted(block_terms.keys())
@@ -268,7 +278,7 @@ class SPIMIIndex:
             # 3. Guardar a disco (Binary File)
             # Ordenamos por doc_id para búsquedas más estructuradas si fuera necesario
             final_postings.sort(key=lambda x: str(x['doc_id']))
-            filename = save_term_binary(current_term, final_postings)
+            filename = self._save_term_binary(current_term, final_postings)
             vocab_map[current_term] = filename
 
         # Finalizar cálculo de normas (Raíz cuadrada)
@@ -276,9 +286,9 @@ class SPIMIIndex:
         final_doc_norms = {str(d): math.sqrt(val) for d, val in doc_norms.items()}
         
         # Guardar metadatos globales
-        with open(VOCAB_MAP_PATH, "w") as f: json.dump(vocab_map, f)
-        with open(IDF_PATH, "w") as f: json.dump(idf_map, f)
-        with open(DOC_NORMS_PATH, "w") as f: json.dump(final_doc_norms, f)
+        with open(self.vocab_map_path, "w") as f: json.dump(vocab_map, f)
+        with open(self.idf_path, "w") as f: json.dump(idf_map, f)
+        with open(self.doc_norms_path, "w") as f: json.dump(final_doc_norms, f)
         
         print("Indexación completada exitosamente.")
 
@@ -289,11 +299,11 @@ class SPIMIIndex:
 # --- 4. BUSCADOR (Consulta Vectorial) ---
     def load_metadata(self):
         """Carga vocab_map, idf y doc_norms para permitir búsquedas."""
-        if not os.path.exists(VOCAB_MAP_PATH):
+        if not os.path.exists(self.vocab_map_path):
             raise Exception("El índice no existe. Ejecuta con --build primero.")
-        with open(VOCAB_MAP_PATH, 'r') as f: self.vocab_map = json.load(f)
-        with open(IDF_PATH, 'r') as f: self.idf_map = json.load(f)
-        with open(DOC_NORMS_PATH, 'r') as f: self.doc_norms = json.load(f)
+        with open(self.vocab_map_path, 'r') as f: self.vocab_map = json.load(f)
+        with open(self.idf_path, 'r') as f: self.idf_map = json.load(f)
+        with open(self.doc_norms_path, 'r') as f: self.doc_norms = json.load(f)
         if not hasattr(self, 'preproc') or self.preproc is None:
             self.preproc = Preprocessor()
         return True
@@ -320,7 +330,7 @@ class SPIMIIndex:
         for term, q_w in q_weights.items():
             filename = self.vocab_map.get(term)
             if filename:
-                data = load_term_binary_by_filename(filename)
+                data = self._load_term_binary_by_filename(filename)
                 if data:
                     for posting in data['postings']:
                         doc_id = posting['doc_id']
