@@ -144,34 +144,67 @@ export default function UserManual({ open, onClose }) {
             </Typography>
             <Box sx={{ backgroundColor: '#f5f5f5', padding: 2, borderRadius: 1, mb: 2 }}>
               <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
-                Consulta básica SELECT:
+                Consulta para crear tabla:
               </Typography>
               <Typography variant="body2" component="pre" sx={{ fontFamily: 'monospace', margin: 0 }}>
-{`SELECT * FROM usuarios LIMIT 10;`}
+{`CREATE TABLE Productos FROM FILE "/app/data/productos.csv" USING INDEX BTREE("codigo")`}
               </Typography>
             </Box>
+
             <Box sx={{ backgroundColor: '#f5f5f5', padding: 2, borderRadius: 1, mb: 2 }}>
               <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
-                Consulta con JOIN:
+                Consulta para devolver todas los registros:
               </Typography>
               <Typography variant="body2" component="pre" sx={{ fontFamily: 'monospace', margin: 0 }}>
-{`SELECT u.nombre, p.total
-FROM usuarios u
-JOIN pedidos p ON u.id = p.usuario_id;`}
+{`SELECT * FROM Productos`}
               </Typography>
             </Box>
-            <Box sx={{ backgroundColor: '#f5f5f5', padding: 2, borderRadius: 1 }}>
+
+            <Box sx={{ backgroundColor: '#f5f5f5', padding: 2, borderRadius: 1, mb: 2 }}>
               <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
-                Crear una nueva tabla:
+                Consulta para buscar un registro:
               </Typography>
               <Typography variant="body2" component="pre" sx={{ fontFamily: 'monospace', margin: 0 }}>
-{`CREATE TABLE productos (
-  id INT PRIMARY KEY,
-  nombre VARCHAR(100),
-  precio DECIMAL(10,2)
-);`}
+{`SELECT * FROM Productos WHERE código = 1005`}
               </Typography>
             </Box>
+
+            <Box sx={{ backgroundColor: '#f5f5f5', padding: 2, borderRadius: 1, mb: 2 }}>
+              <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+                Consulta para buscar registros dentro de un rango:
+              </Typography>
+              <Typography variant="body2" component="pre" sx={{ fontFamily: 'monospace', margin: 0 }}>
+{`SELECT * FROM Productos WHERE codigo BETWEEN 1003 AND 1008`}
+              </Typography>
+            </Box>
+
+            <Box sx={{ backgroundColor: '#f5f5f5', padding: 2, borderRadius: 1, mb: 2 }}>
+              <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+                Consulta para insertar un registro:
+              </Typography>
+              <Typography variant="body2" component="pre" sx={{ fontFamily: 'monospace', margin: 0 }}>
+{`INSERT INTO Productos VALUES()`}
+              </Typography>
+            </Box>
+
+            <Box sx={{ backgroundColor: '#f5f5f5', padding: 2, borderRadius: 1, mb: 2 }}>
+              <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+                Consulta para eliminar un registro:
+              </Typography>
+              <Typography variant="body2" component="pre" sx={{ fontFamily: 'monospace', margin: 0 }}>
+{`DELETE FROM Productos WHERE código = 1020`}
+              </Typography>
+            </Box>
+
+            <Box sx={{ backgroundColor: '#f5f5f5', padding: 2, borderRadius: 1, mb: 2 }}>
+              <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+                Consulta para devolver las 10 imágenes más similares :
+              </Typography>
+              <Typography variant="body2" component="pre" sx={{ fontFamily: 'monospace', margin: 0 }}>
+{`M SELECT * FROM /app/data/imagenes/dogs WHERE image-sim <-> "/app/data/imagenes/dogs/dog.6.jpg"`}
+              </Typography>
+            </Box>
+            
           </Box>
 
           <Divider />
@@ -282,39 +315,6 @@ JOIN pedidos p ON u.id = p.usuario_id;`}
           </Box>
 
           <Divider />
-
-          {/* Consejos */}
-          <Box>
-            <Typography variant="h6" gutterBottom sx={{ color: '#1976d2', fontWeight: 'bold' }}>
-              💡 Consejos y Mejores Prácticas
-            </Typography>
-            <List dense>
-              <ListItem>
-                <ListItemText 
-                  primary="Usa LIMIT en tus consultas"
-                  secondary="Para consultas que pueden retornar muchos resultados, siempre incluye LIMIT para mejorar el rendimiento."
-                />
-              </ListItem>
-              <ListItem>
-                <ListItemText 
-                  primary="Nombres descriptivos"
-                  secondary="Al crear tablas, usa nombres descriptivos y consistentes para facilitar la búsqueda y organización."
-                />
-              </ListItem>
-              <ListItem>
-                <ListItemText 
-                  primary="Organiza tus imágenes"
-                  secondary="Sube imágenes con nombres descriptivos para encontrarlas fácilmente usando la barra de búsqueda."
-                />
-              </ListItem>
-              <ListItem>
-                <ListItemText 
-                  primary="Revisa los resultados"
-                  secondary="Siempre revisa las estadísticas de tus consultas para entender el impacto y rendimiento de tus operaciones."
-                />
-              </ListItem>
-            </List>
-          </Box>
 
         </Box>
       </DialogContent>
