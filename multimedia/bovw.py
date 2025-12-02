@@ -10,10 +10,11 @@ from sklearn.cluster import KMeans
 import pickle
 import os
 from typing import List, Optional, Tuple
+from multimedia.config import VOCAB_SIZE
 
 
 def build_visual_codebook(sift_descriptors_list: List[np.ndarray], 
-                         vocab_size: int = 1000,
+                         vocab_size: int = None,
                          random_state: int = 42,
                          max_iter: int = 300,
                          n_init: int = 10) -> Tuple[KMeans, np.ndarray]:
@@ -32,6 +33,10 @@ def build_visual_codebook(sift_descriptors_list: List[np.ndarray],
         - kmeans_model: Modelo K-Means entrenado para asignar visual words
         - training_descriptors: Descriptores usados para entrenar (para actualización incremental)
     """
+    # Usar valor por defecto de config si no se especifica
+    if vocab_size is None:
+        vocab_size = VOCAB_SIZE
+    
     # Concatenar todos los descriptores de todas las imágenes
     print(f"[INFO] Construyendo codebook con vocab_size={vocab_size}...")
     
@@ -183,7 +188,7 @@ def load_codebook(filepath: str) -> Tuple[KMeans, Optional[np.ndarray]]:
 
 def add_images_to_codebook(codebook_path: str, 
                            new_sift_descriptors_list: List[np.ndarray],
-                           vocab_size: int = 200,
+                           vocab_size: int = None,
                            random_state: int = 42,
                            max_iter: int = 300,
                            n_init: int = 10) -> KMeans:
@@ -194,7 +199,7 @@ def add_images_to_codebook(codebook_path: str,
     Args:
         codebook_path: Ruta al codebook existente
         new_sift_descriptors_list: Lista de descriptores SIFT de las nuevas imágenes
-        vocab_size: Tamaño del vocabulario (debe coincidir con el codebook existente)
+        vocab_size: Tamaño del vocabulario (debe coincidir con el codebook existente). Si es None, usa VOCAB_SIZE de config.
         random_state: Semilla para reproducibilidad
         max_iter: Máximo número de iteraciones para K-Means
         n_init: Número de inicializaciones para K-Means
@@ -202,6 +207,10 @@ def add_images_to_codebook(codebook_path: str,
     Returns:
         Modelo K-Means re-entrenado
     """
+    # Usar valor por defecto de config si no se especifica
+    if vocab_size is None:
+        vocab_size = VOCAB_SIZE
+    
     # Cargar codebook existente
     kmeans_model, old_descriptors = load_codebook(codebook_path)
     

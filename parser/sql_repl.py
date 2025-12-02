@@ -294,6 +294,7 @@ class SQLREPL:
             from multimedia.sift_features import get_image_paths, extract_sift_from_dataset
             from multimedia.bovw import load_codebook, load_histograms, images_to_histograms
             from multimedia.sequential_search import SequentialSIFTSearch
+            from multimedia.config import MAX_KEYPOINTS
             import numpy as np
             
             # Asegurar que base_dir apunte a la raíz del proyecto
@@ -357,7 +358,7 @@ class SQLREPL:
             
             # Extraer descriptores SIFT solo de las imágenes de la carpeta
             print(f"DEBUG Extrayendo descriptores SIFT de {len(image_paths)} imágenes...")
-            folder_descriptors = extract_sift_from_dataset(image_paths, max_keypoints=100)
+            folder_descriptors = extract_sift_from_dataset(image_paths, max_keypoints=MAX_KEYPOINTS)
             
             # Generar histogramas solo para estas imágenes
             print(f"DEBUG Generando histogramas...")

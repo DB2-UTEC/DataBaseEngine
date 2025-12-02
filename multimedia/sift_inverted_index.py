@@ -138,8 +138,9 @@ class SIFTInvertedIndex:
         Returns:
             Lista de tuplas (ruta_imagen, score) ordenadas por score descendente
         """
-        # Extraer descriptores SIFT (máximo 100 keypoints)
-        descriptors = extract_sift_features(query_image_path, max_keypoints=100)
+        # Extraer descriptores SIFT
+        from multimedia.config import MAX_KEYPOINTS
+        descriptors = extract_sift_features(query_image_path, max_keypoints=MAX_KEYPOINTS)
         if descriptors is None or len(descriptors) == 0:
             return []
         

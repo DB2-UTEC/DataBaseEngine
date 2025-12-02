@@ -11,7 +11,7 @@ import os
 from typing import List, Optional, Tuple
 
 
-def extract_sift_features(image_path: str, max_keypoints: int = 100) -> Optional[np.ndarray]:
+def extract_sift_features(image_path: str, max_keypoints: int = 10000) -> Optional[np.ndarray]:
     """
     Extrae descriptores locales SIFT de una imagen.
     

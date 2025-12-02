@@ -97,8 +97,9 @@ class SequentialSIFTSearch:
         Returns:
             Histograma TF-IDF (vocab_size,)
         """
-        # Extraer descriptores SIFT (máximo 100 keypoints)
-        descriptors = extract_sift_features(query_image_path, max_keypoints=100)
+        # Extraer descriptores SIFT
+        from multimedia.config import MAX_KEYPOINTS
+        descriptors = extract_sift_features(query_image_path, max_keypoints=MAX_KEYPOINTS)
         if descriptors is None or len(descriptors) == 0:
             # Retornar histograma de ceros si no hay descriptores
             return np.zeros(self.vocab_size, dtype=np.float32)

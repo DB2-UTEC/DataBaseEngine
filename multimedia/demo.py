@@ -24,6 +24,7 @@ from multimedia.bovw import (
 )
 from multimedia.sequential_search import SequentialSIFTSearch
 from multimedia.sift_inverted_index import SIFTInvertedIndex
+from multimedia.config import MAX_KEYPOINTS, VOCAB_SIZE
 
 IMAGE_DIR = "./data/imagenes"
 DB_PATH = "./multimedia/database/features.json"
@@ -82,8 +83,8 @@ def demo_sift_sequential():
     
     print(f"[INFO] Procesando {len(image_paths)} imágenes...")
     
-    vocab_size = 200
-    max_keypoints = 100
+    vocab_size = VOCAB_SIZE
+    max_keypoints = MAX_KEYPOINTS
     
     # Paso 1: Extraer descriptores SIFT
     print(f"\n[PASO 1] Extrayendo descriptores SIFT (max_keypoints={max_keypoints})...")
@@ -222,16 +223,22 @@ def demo_sift_inverted_index():
         print(f"[WARN] No se pudo visualizar: {e}")
 
 
-def add_new_images_incremental(new_image_paths: List[str], vocab_size: int = 200, max_keypoints: int = 100):
+def add_new_images_incremental(new_image_paths: List[str], vocab_size: int = None, max_keypoints: int = None):
     """
     Agrega nuevas imágenes al codebook existente de forma incremental.
     Solo procesa las nuevas imágenes y actualiza el codebook.
     
     Args:
         new_image_paths: Lista de rutas a las nuevas imágenes a agregar
-        vocab_size: Tamaño del vocabulario (debe coincidir con el codebook existente)
-        max_keypoints: Número máximo de keypoints por imagen
+        vocab_size: Tamaño del vocabulario (debe coincidir con el codebook existente). Si es None, usa VOCAB_SIZE de config.
+        max_keypoints: Número máximo de keypoints por imagen. Si es None, usa MAX_KEYPOINTS de config.
     """
+    # Usar valores por defecto de config si no se especifican
+    if max_keypoints is None:
+        max_keypoints = MAX_KEYPOINTS
+    if vocab_size is None:
+        vocab_size = VOCAB_SIZE
+    
     print("\n" + "="*60)
     print("AGREGAR NUEVAS IMÁGENES AL CODEBOOK")
     print("="*60)
