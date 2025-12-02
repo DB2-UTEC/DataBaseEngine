@@ -61,7 +61,7 @@ spatial_condition: field_name "IN"i "(" value "," value ")"  // point y radius c
 multimedia_condition: field_name "<->" string_literal  // Búsqueda por similitud de imágenes
 
 comparison: field_name comparison_operator value
-comparison_operator: "=" | "!=" | "<>" | "<" | ">" | "<=" | ">=" | "<->"
+comparison_operator: "=" | "!=" | "<>" | "<" | ">" | "<=" | ">=" | "<->" | FTMATCH | "MATCH"i
 
 // Optional ORDER BY / LIMIT
 order_clause: "ORDER"i "BY"i field_name ("ASC"i | "DESC"i)?
@@ -110,4 +110,8 @@ string_literal: ESCAPED_STRING | SINGLE_QUOTED_STRING
 
 // Agregar soporte para comillas simples
 SINGLE_QUOTED_STRING: /'[^']*'/
+
+// Token para Full-Text Match
+FTMATCH: "@@"
+
 """
